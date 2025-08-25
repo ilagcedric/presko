@@ -36,6 +36,7 @@ export function UnitsStep() {
     availableHorsepowerOptions, 
     customPricingSettings, // Access custom pricing settings
     discount, // Access discount from Redux state
+    
   } = useSelector((state: RootState) => state.booking);
 
   // Initialize devices state from Redux, or with one empty device if none selected
