@@ -177,7 +177,7 @@ export function ConfirmStep() {
 
         const siteUrlSetting = await customSettingsApi.getSetting('site_url');
         const siteUrl = siteUrlSetting?.setting_value || 
-        (typeof window !== 'undefined' ? window.location.origin : 'https://betapresko.vercel.app');
+        (typeof window !== 'undefined' ? window.location.origin : 'https://presko-ac.vercel.app/');
 
         // update with real QR
         await clientApi.updateClient(currentClientId, { qr_code: `client/${currentClientId}`});
@@ -297,7 +297,7 @@ export function ConfirmStep() {
       //         Amount: {3}
 
       //         To check your booking, please scan your Presko QR Code or visit:
-      //         https://betapresko.vercel.app/client/{4}
+      //         https://presko-ac.vercel.app/client/{4}
 
       //         Thank you for choosing Presko!`;
 
