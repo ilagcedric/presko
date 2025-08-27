@@ -16,8 +16,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .order('created_at', { ascending: false })
 
       if (search) {
-        query = query.ilike('name', `%${search}%`)
-      }
+          query = query.or(
+            `name.ilike.%${search}%,cities.name.ilike.%${search}%`
+          )
+        }
+
 
       const { data, error, count } = await query.range(from, to)
       if (error) return handleSupabaseError(error, res)

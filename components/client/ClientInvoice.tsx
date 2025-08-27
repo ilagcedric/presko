@@ -16,7 +16,7 @@ interface Props {
 export function ClientInvoice({ clientId }: Props) {
   const [appointments, setAppointments] = useState<AppointmentWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filter, setFilter] = useState<"all" | "today" | "incoming" | "previous">("all");
+  const [filter, setFilter] = useState<"all" | "today" >("all");
   const [dateFilter, setDateFilter] = useState<string>("");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -135,7 +135,7 @@ export function ClientInvoice({ clientId }: Props) {
       <div className="flex flex-col sm:flex-row sm:justify-between w-full gap-2">
         {/* Buttons Row */}
         <div className="flex flex-wrap gap-2">
-          {["all", "today", "incoming", "previous"].map((f) => (
+          {["all", "today"].map((f) => (
             <Button
               key={f}
               className="rounded-md border-teal-400 text-teal-600 bg-white hover:bg-white-100 shadow-md text-sm"

@@ -546,12 +546,17 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
       const appointmentDate = bookingDate;
       let totalUnits = selectedDevices.length;
       let amount = 0;
+      let stored_discount = 0;
+      let discount_type = 'Standard';
       let newDeviceIds: UUID[] = [];
       let additionalDeviceIds: UUID[] = [];
 
       // --- Pricing ---
       const pricing = calculateTotalPrice();
+
       amount = pricing.total;
+      stored_discount = pricing.discount;
+      discount_type = pricing.discount_type;
       totalUnits = selectedDevices.length + 
                    newUnits.reduce((sum, unit) => sum + unit.quantity, 0) +
                    additionalUnits.reduce((sum, unit) => sum + unit.quantity, 0);
@@ -564,6 +569,8 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
         appointment_date: appointmentDate,
         appointment_time: null,
         amount,
+        stored_discount,
+        discount_type,
         total_units: totalUnits,
         notes: "Client panel booking",
       });
@@ -632,6 +639,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
       if (showAdditionalService && additionalServiceId && additionalServiceDevices.length > 0) {
         const additionalPricing = calculateAdditionalServicePrice();
         const additionalAmount = additionalPricing.total;
+        const additionalDiscounted = additionalPricing.discount;
         const additionalAppointment = await appointmentApi.createAppointment({
           client_id: client.id,
           location_id: selectedLocationId,
@@ -639,6 +647,8 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
           appointment_date: additionalServiceDate,
           appointment_time: null,
           amount: additionalAmount,
+          stored_discount: additionalDiscounted,
+          discount_type: discount_type,
           total_units: additionalServiceDevices.length,
           notes: "Client panel booking - Additional service",
         });
@@ -1524,10 +1534,12 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
     }
     
     const total = subtotal - discountAmount;
+    const discount_type = calculateDiscount().type;
 
     return {
       subtotal,
       discount: discountValue,
+      discount_type,
       discountAmount,
       total
     };
@@ -1558,18 +1570,21 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
       discountAmount = (subtotal * discount.value) / 100;
     }
     const total = subtotal - discountAmount;
+    const discount_type = calculateDiscount().type;
     
     return {
       subtotal,
       discount: discountValue,
+      discount_type,
       discountAmount,
-      total
+      total,
     };
   };
 
   // Calculate combined total price for both services
   const calculateCombinedTotalPrice = () => {
     const mainPricing = calculateTotalPrice();
+    const discount_type = calculateDiscount();
     
     const additionalPricing = showAdditionalService && additionalServiceDevices.length > 0 
       ? calculateAdditionalServicePrice() 
@@ -1579,7 +1594,8 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
       subtotal: mainPricing.subtotal + additionalPricing.subtotal,
       discount: mainPricing.discount, // Assuming same discount applies, or adjust as needed
       discountAmount: mainPricing.discountAmount + additionalPricing.discountAmount,
-      total: mainPricing.total + additionalPricing.total
+      total: mainPricing.total + additionalPricing.total,
+      discount_type: discount_type.type
     };
   };
 
@@ -1832,7 +1848,7 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
                         <span className="font-semibold text-gray-800">₱{pricing.subtotal.toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Discount ({pricing.discount}%):</span>
+                        <span className="text-gray-600">Discount ({pricing.discount}% - {pricing.discount_type}):</span>
                         <span className="font-semibold text-red-600">-₱{pricing.discountAmount.toLocaleString()}</span>
                       </div>
                       <div className="border-t-2 border-gray-300 pt-4 mt-4">

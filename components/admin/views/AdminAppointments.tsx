@@ -184,9 +184,6 @@ export default function AdminAppointments() {
       }
     }
 
-    console.log(settingsMap["split_type_price"], 'split');
-    console.log(settingsMap["window_type_price"], 'window');
-
     return 0;
   };
 
@@ -219,7 +216,7 @@ export default function AdminAppointments() {
     0
   );
 
-  const discount = calculateDiscount(editTarget?.clients, customSettings);
+  const discount = { value: editTarget?.stored_discount ?? 0, type: editTarget?.discount_type || 'Standard' };
   const finalTotal = subtotal * (1 - discount.value / 100);
 
 
@@ -984,10 +981,10 @@ export default function AdminAppointments() {
                     computeUnitPrice(d, settingsMap, editTarget?.services?.name),
                   0
                 );
-                const discount = calculateDiscount(
-                  editTarget?.clients,
-                  customSettings
-                );
+                const discount = {
+                  value: editTarget?.stored_discount ?? 0,
+                  type: editTarget?.discount_type || 'Standard' 
+                };
                 const finalAmount =
                   subtotal - (subtotal * discount.value) / 100;
 

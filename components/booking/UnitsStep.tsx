@@ -36,7 +36,6 @@ export function UnitsStep() {
     availableHorsepowerOptions, 
     customPricingSettings, // Access custom pricing settings
     discount, // Access discount from Redux state
-    
   } = useSelector((state: RootState) => state.booking);
 
   // Initialize devices state from Redux, or with one empty device if none selected
@@ -416,7 +415,7 @@ export function UnitsStep() {
               const discountAmount = calculateDiscountAmount();
               return (
                 <div className="flex justify-between items-center text-lg text-red-600">
-                  <span>Discount ({customPricingSettings.discount}%):</span>
+                  <span>Discount ({customPricingSettings.discount}% - Standard):</span>
                   <span className="font-semibold text-red-600">- ₱{discountAmount.toLocaleString()}</span>
                 </div>
               );

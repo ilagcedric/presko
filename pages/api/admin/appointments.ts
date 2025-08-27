@@ -14,7 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let query = supabase
         .from('appointments')
         .select(`
-          id, appointment_date, appointment_time, status, amount, total_units, notes,
+          id, appointment_date, appointment_time, status, amount, total_units, notes, stored_discount, discount_type,
           clients:client_id(id, name, mobile),
           services:service_id(id, name, description, base_price),
           client_locations:location_id(
@@ -74,12 +74,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PATCH') {
-      const { id, status, appointment_time, appointment_date, amount } = req.body as {
+      const { id, status, appointment_time, appointment_date, amount, stored_discount, discount_type } = req.body as {
         id: string
         status?: 'completed' | 'confirmed'
         appointment_time?: string | null
         appointment_date?: string | null
         amount?: number
+        stored_discount?: number
+        discount_type?: 'Standard' | 'Family/Friends'
       }
 
       const updatePayload: any = { updated_at: new Date().toISOString() }
@@ -87,13 +89,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (typeof appointment_time !== 'undefined') updatePayload.appointment_time = appointment_time
       if (typeof appointment_date !== 'undefined') updatePayload.appointment_date = appointment_date
       if (typeof amount !== 'undefined') updatePayload.amount = amount
+      if (typeof stored_discount !== 'undefined') updatePayload.stored_discount = stored_discount
+      if (typeof discount_type !== 'undefined') updatePayload.discount_type = discount_type
+
 
       // Update appointment fields and fetch needed data for downstream logic
       const { data: appt, error: updateErr } = await supabase
         .from('appointments')
         .update(updatePayload)
         .eq('id', id)
-        .select('id, status, appointment_date, client_id, service_id, amount')
+        .select('id, status, appointment_date, client_id, service_id, amount, stored_discount, discount_type')
         .single()
 
       if (updateErr) return handleSupabaseError(updateErr, res)
