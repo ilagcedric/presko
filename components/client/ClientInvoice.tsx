@@ -177,8 +177,9 @@ export function ClientInvoice({ clientId }: Props) {
         }, 0);
 
         // Apply discount on subtotal
-        const discount = calculateDiscount(appt.clients);
-        const discountAmount = (subtotal * discount.value) / 100;
+        const discount = appt.stored_discount;
+        const discountType = appt.discount_type;
+        const discountAmount = (subtotal * discount) / 100;
 
         // Final total comes from appointment table (trusted amount)
         const finalTotal = appt.amount;
@@ -266,7 +267,7 @@ export function ClientInvoice({ clientId }: Props) {
                 <span>₱{subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Discount ({discount.value}% {discount.type})</span>
+                <span>Discount ({discount}% {discountType})</span>
                 <span>-₱{discountAmount.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
