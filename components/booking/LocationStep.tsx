@@ -470,7 +470,7 @@ export function LocationStep() {
                     )}
                   </div>
                   {isCityDropdownOpen && !isFetchingCities && filteredCities.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto">
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-30 overflow-y-auto">
                       {filteredCities.map((city) => (
                         <div
                           key={city.id}
