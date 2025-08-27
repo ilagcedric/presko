@@ -498,7 +498,7 @@ export function LocationStep() {
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select a barangay" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="max-h-64 overflow-y-auto">
                       {barangays.length > 0 ? (
                         barangays.map((barangay) => (
                           <SelectItem key={barangay.id} value={barangay.id}>
