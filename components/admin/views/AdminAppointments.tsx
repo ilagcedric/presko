@@ -14,6 +14,7 @@ import { RootState } from '@/lib/store';
 import { setAppointments } from '@/lib/features/admin/adminSlice';
 import { AppointmentWithDetails, PaginationInfo } from '@/types/database';
 import moment from 'moment';
+import { useRealtime } from '@/app/RealtimeContext';
 
 export default function AdminAppointments() {
   const dispatch = useDispatch();
@@ -46,6 +47,8 @@ export default function AdminAppointments() {
  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
 
+  const { refreshKey } = useRealtime();
+
   // Load appointments with all filters
   const loadAppointments = async (page = 1, resetPage = false) => {
     setLoading(true);
@@ -73,7 +76,7 @@ export default function AdminAppointments() {
 
   useEffect(() => {
     loadAppointments(1, true);
-  }, [statusFilter, dateFilter, specificDate]);
+  }, [statusFilter, dateFilter, specificDate, refreshKey]);
 
   useEffect(() => {
     const fetchDropdownData = async () => {

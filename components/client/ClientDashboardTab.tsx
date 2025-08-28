@@ -65,6 +65,7 @@ import { Client, ClientLocation, Appointment, Device, Service, Brand, ACType, Ho
 import { barangayApi } from '@/pages/api/barangays/barangayApi';
 import { cityApi } from '@/pages/api/cities/cityApi';
 import { PointsAppointments } from './client_components/PointsAppointments';
+import { useRealtime } from '@/app/RealtimeContext';
 
 interface ClientDashboardTabProps {
   clientId: string;
@@ -175,6 +176,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
   const [selectedBarangay, setSelectedBarangay] = useState<any | null>(null);
   const [isFetchingCities, setIsFetchingCities] = useState(false);
   const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   const [locationForm, setLocationForm] = useState<{
     name: string;
@@ -889,41 +891,37 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
     fetchLookupData();
   }, []);
 
-  useEffect(() => {
-    const fetchClientData = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const fetchedClient = await clientApi.getClientById(clientId);
-        if (!fetchedClient) {
-          setError('Client not found.');
-          setIsLoading(false);
-          return;
-        }
+    const { refreshKey } = useRealtime();
 
-        const [fetchedLocations, fetchedDevices, fetchedAppointments] = await Promise.all([
-          clientLocationApi.getByClientId(clientId),
-          deviceApi.getByClientId(clientId),
-          appointmentApi.getByClientId(clientId),
-        ]);
-        
-        // let calculatedPoints = 0;
-        // fetchedAppointments.forEach(appt => {
-        //   if (appt.status === 'completed') {
-        //     calculatedPoints += 1;
-        //     // if (appt.total_units && appt.total_units >= 3) {
-        //     //   calculatedPoints += 1;
-        //     // }
-        //   }
-        // });
-        
+    useEffect(() => {
+      const fetchClientData = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+          const fetchedClient = await clientApi.getClientById(clientId);
+          if (!fetchedClient) {
+            setError("Client not found.");
+            setIsLoading(false);
+            return;
+          }
 
-        let pointsExpiry = null;
-        
+          const [
+            fetchedLocations,
+            fetchedDevices,
+            fetchedAppointments,
+          ] = await Promise.all([
+            clientLocationApi.getByClientId(clientId),
+            deviceApi.getByClientId(clientId),
+            appointmentApi.getByClientId(clientId),
+          ]);
+
+          let pointsExpiry = null;
           const firstCompletedAppointment = fetchedAppointments.reduce(
             (earliest, current) => {
               if (current.status === "completed") {
-                const currentTimestamp = new Date(current.appointment_date).getTime();
+                const currentTimestamp = new Date(
+                  current.appointment_date
+                ).getTime();
                 const earliestTimestamp = earliest
                   ? new Date(earliest.appointment_date).getTime()
                   : Infinity;
@@ -940,29 +938,28 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
               1
             ).toISOString();
           }
-        
-        
-        
-        const updatedClient = await clientApi.updateClient(clientId, {
-          // points: calculatedPoints,
-          points_expiry: pointsExpiry,
-        });
-        setClient(updatedClient);
-      
-        setLocations(fetchedLocations);
-        setDevices(fetchedDevices);
-        setAppointments(fetchedAppointments);
 
-      } catch (err: any) {
-        console.error('Error fetching client dashboard data:', err);
-        setError(err.message || 'Failed to load client data.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+          const updatedClient = await clientApi.updateClient(clientId, {
+            points_expiry: pointsExpiry,
+          });
 
-    fetchClientData();
-  }, [clientId]);
+          setClient(updatedClient);
+          setLocations(fetchedLocations);
+          setDevices(fetchedDevices);
+          setAppointments(fetchedAppointments);
+        } catch (err: any) {
+          console.error("Error fetching client dashboard data:", err);
+          setError(err.message || "Failed to load client data.");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchClientData();
+    }, [clientId, refreshKey]);
+
+
+
 
 
   const getServiceName = (id: UUID | null) => allServices.find(s => s.id === id)?.name || 'N/A';
@@ -992,7 +989,7 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
       }
     };
     buildLinks();
-  }, [devices, appointments]);
+  }, [devices, appointments, refreshKey]);
 
    const getDeviceCleaningStatus = () => {
     const statusByLocation = new Map<UUID, {
@@ -1658,23 +1655,9 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
           
         />
 
-        {/* <AddLocationButton onClick={handleOpenLocationModal} /> */}
-
-        {/* <PointsCard points={client.points} pointsExpiry={client.points_expiry} onReferClick={onReferClick} />
-
-        <RecentAppointmentsTable
-          appointments={currentAppointments}
-          getServiceName={getServiceName}
-          getLocationName={(id) => getLocation(id)?.name || 'N/A'}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPreviousPage={handlePreviousPage}
-          onNextPage={handleNextPage}
-          itemsPerPage={itemsPerPage}
-        /> */}
 
        <PointsAppointments
-       appointments={appointments}
+        appointments={appointments}
         deviceIdToAppointmentId={deviceIdToAppointmentId}
         points={client?.points ?? 0}
         pointsExpiry={client?.points_expiry}

@@ -28,6 +28,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { ClientInvoice } from './ClientInvoice'
+import { useRealtime } from '@/app/RealtimeContext'
 // import { ClientAddLocationTab } from '../../components/client/ClientAddLocation'
 
 const NewLogo = () => <Image src="/assets/images/presko_logo.png" alt="Presko Logo" width={200} height={100} />
@@ -44,6 +45,9 @@ export default function ClientPanel({ params }: ClientPanelProps) {
   const [clientName, setClientName] = useState('')
   const [notifications, setNotifications] = useState<any[]>([])
   const [isNotifOpen, setIsNotifOpen] = useState(false)
+
+  
+    const { refreshKey } = useRealtime();
 
   const clientId = params?.id
 
@@ -78,7 +82,7 @@ export default function ClientPanel({ params }: ClientPanelProps) {
       }
     }
     fetchClientName()
-  }, [clientId])
+  }, [clientId, refreshKey])
 
   const fetchNotifications = async () => {
     if (!clientId) return
@@ -93,7 +97,7 @@ export default function ClientPanel({ params }: ClientPanelProps) {
 
   useEffect(() => {
     fetchNotifications()
-  }, [clientId])
+  }, [clientId, refreshKey])
 
   if (!clientId) {
     return (

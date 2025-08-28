@@ -5,6 +5,7 @@ import { setNotifications, setNewNotificationsCount } from '@/lib/features/admin
 import type { RootState } from '@/lib/store'
 import { Bell, Menu } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useRealtime } from '@/app/RealtimeContext'
 
 export default function AdminHeader({ onMenuClick }: { onMenuClick: () => void }) {
   const dispatch = useDispatch()
@@ -14,6 +15,7 @@ export default function AdminHeader({ onMenuClick }: { onMenuClick: () => void }
   const newNotificationsCount = useSelector((s: RootState) => s.admin.newNotificationsCount)
 
   const [isOpen, setIsOpen] = useState(false)
+  const { refreshKey } = useRealtime();
 
   useEffect(() => {
     const fetchInitialNotifications = async () => {
@@ -27,7 +29,7 @@ export default function AdminHeader({ onMenuClick }: { onMenuClick: () => void }
       }
     }
     fetchInitialNotifications()
-  }, [dispatch])
+  }, [dispatch, refreshKey])
 
   const viewLabelMap: Record<string, string> = {
     dashboard: 'Dashboard',
