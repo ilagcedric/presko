@@ -194,6 +194,8 @@ export function PointsAppointments({
             brands={brands}
             acTypes={acTypes}
             horsepowerOptions={horsepowerOptions}
+            appointments={appointments}
+            deviceIdToAppointmentId={deviceIdToAppointmentId}
             onEditDevice={openEditFor}
           />
         )}

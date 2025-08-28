@@ -11,6 +11,7 @@ import {
   ACType,
   HorsepowerOption,
   UUID,
+  Appointment,
 } from "../../../types/database";
 
 interface ClientDevicesTableProps {
@@ -21,6 +22,8 @@ interface ClientDevicesTableProps {
   horsepowerOptions: HorsepowerOption[];
   onEditDevice: (device: Device) => void;
   itemsPerPage?: number;
+  appointments: Appointment[];
+  deviceIdToAppointmentId: Map<UUID, UUID[]>;
 }
 
 export function ClientDevicesTable({
@@ -31,6 +34,8 @@ export function ClientDevicesTable({
   horsepowerOptions,
   onEditDevice,
   itemsPerPage = 5,
+  appointments,
+  deviceIdToAppointmentId,
 }: ClientDevicesTableProps) {
   const [currentPage, setCurrentPage] = React.useState(1);
 
@@ -48,26 +53,44 @@ export function ClientDevicesTable({
     id ? horsepowerOptions.find((h) => h.id === id)?.display_name || "-" : "-";
 
     const getDeviceStatus = (device: Device): string => {
+  // 🔹 First check if there are linked appointments
+    const apptIds = deviceIdToAppointmentId.get(device.id) || [];
+    const linkedAppointments = apptIds
+      .map((id) => appointments.find((a) => a.id === id))
+      .filter((a): a is Appointment => !!a);
+
+    // If any appointment is "confirmed" → show as scheduled
+    if (linkedAppointments.some((a) => a.status === "confirmed")) {
+      return "scheduled";
+    }
+
+    // If any appointment is "pending" → also treat as scheduled
+    if (linkedAppointments.some((a) => a.status === "pending")) {
+      return "scheduled";
+    }
+
+    // If latest appointment is completed → use due/maintain/repair rules
     if (device.last_repair_date) return "repair";
 
     if (device.due_3_months || device.due_4_months || device.due_6_months) {
-        const now = new Date();
-        const dueDates = [device.due_3_months, device.due_4_months, device.due_6_months]
+      const now = new Date();
+      const dueDates = [device.due_3_months, device.due_4_months, device.due_6_months]
         .filter(Boolean)
         .map((d) => new Date(d as string));
 
-        const nearestDue = dueDates.sort((a, b) => a.getTime() - b.getTime())[0];
+      const nearestDue = dueDates.sort((a, b) => a.getTime() - b.getTime())[0];
 
-        if (nearestDue && nearestDue.getTime() < now.getTime()) {
+      if (nearestDue && nearestDue.getTime() < now.getTime()) {
         return "due";
-        } else {
-        return "maintain"; // ✅ instead of up-to-date
-        }
+      } else {
+        return "maintain";
+      }
     }
 
     if (!device.last_cleaning_date) return "scheduled";
-        return "scheduled";
-    };
+
+    return "scheduled";
+  };
 
 
 
