@@ -738,6 +738,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
     setEditingDeviceId(device.id);
     setEditedDeviceData(device);
   };
+  
 
   const handleCancelEdit = () => {
     setEditingDeviceId(null);
@@ -1673,12 +1674,24 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
         /> */}
 
        <PointsAppointments
-        appointments={appointments}
-        points={client?.points || 0}
+       appointments={appointments}
+        deviceIdToAppointmentId={deviceIdToAppointmentId}
+        points={client?.points ?? 0}
         pointsExpiry={client?.points_expiry}
-        getServiceName={getServiceName}   // you already have this in your file
-        locations={locations}// ✅ now defined
-        onReferClick={onReferClick}  // or open modal
+        getServiceName={getServiceName}
+        locations={locations}
+        devices={devices}
+        brands={allBrands}                   
+        acTypes={allACTypes}                
+        horsepowerOptions={allHorsepowerOptions} 
+        onApplyDeviceUpdate={async (id, patch) => {
+          const updated = await deviceApi.updateDevice(id, patch);
+          return updated;
+        }}
+        onDeviceUpdated={(updated) => {
+          setDevices((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+        }}
+        onReferClick={onReferClick}
       />
 
       </div>
