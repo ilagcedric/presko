@@ -66,11 +66,14 @@ import { barangayApi } from '@/pages/api/barangays/barangayApi';
 import { cityApi } from '@/pages/api/cities/cityApi';
 import { PointsAppointments } from './client_components/PointsAppointments';
 import { useRealtime } from '@/app/RealtimeContext';
+import { toast } from 'sonner';
+import { loyaltyPointsApi } from '@/pages/api/loyalty_points/loyaltyPointsApi';
 
 interface ClientDashboardTabProps {
   clientId: string;
   onBookNewCleaningClick: () => void;
   onReferClick: () => void;
+  onViewProfile: () => void;
 }
 
 // Helper function to format the full address
@@ -96,7 +99,7 @@ function areAllDevicesScheduled(locationId: UUID, devices: Device[], appointment
   });
 }
 
-export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferClick }: ClientDashboardTabProps) {
+export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferClick, onViewProfile }: ClientDashboardTabProps) {
   const [client, setClient] = useState<Client | null>(null);
   const [locations, setLocations] = useState<ClientLocation[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -155,7 +158,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
 
   const [isDetailsModalOpen, setIsDetailsModal] = useState(false);
   const [modalLocation, setModalLocation] = useState<ClientLocation | null>(null);
-  const [modalStatusType, setModalStatusType] = useState<'scheduled' | 'due' | 'well-maintained' | 'repair' | 'no-service' | null>(null);
+  const [modalStatusType, setModalStatusType] = useState<'scheduled' | 'due' | 'well-maintained' | 'repair' | 'no-service' | 'voided' | null>(null);
   const [modalDevices, setModalDevices] = useState<Device[]>([]);
   const [modalServiceName, setModalServiceName] = useState<string | null>(null);
   const [editingDeviceId, setEditingDeviceId] = useState<UUID | null>(null);
@@ -177,6 +180,14 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
   const [isFetchingCities, setIsFetchingCities] = useState(false);
   const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [loyaltyPoints, setLoyaltyPoints] = useState(0);
+  const [referralCount, setReferralCount] = useState(0);
+  const [loyaltyPointsHistory, setLoyaltyPointsHistory] = useState<any[]>([]);
+
+  const [useLoyaltyPoints, setUseLoyaltyPoints] = useState(false);
+  const [loyaltyPointsDiscount, setLoyaltyPointsDiscount] = useState(0);
+  const [showFriendsDiscountWarning, setShowFriendsDiscountWarning] = useState(false);
+  const [redemptionEventsThisYear, setRedemptionEventsThisYear] = useState(0);
 
   const [locationForm, setLocationForm] = useState<{
     name: string;
@@ -550,18 +561,21 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
       let amount = 0;
       let stored_discount = 0;
       let discount_type = 'Standard';
+      let stored_loyalty_points = 0;
       let newDeviceIds: UUID[] = [];
       let additionalDeviceIds: UUID[] = [];
 
-      // --- Pricing ---
-      const pricing = calculateTotalPrice();
-
-      amount = pricing.total;
+      // --- Pricing calculation with loyalty points ---
+      const pricing = calculateCombinedTotalPriceWithLoyalty();
+      
+      // Use the final total after applying loyalty points discount
+      amount = pricing.finalTotal;
       stored_discount = pricing.discount;
       discount_type = pricing.discount_type;
+      stored_loyalty_points = useLoyaltyPoints ? loyaltyPointsDiscount : 0;
       totalUnits = selectedDevices.length + 
-                   newUnits.reduce((sum, unit) => sum + unit.quantity, 0) +
-                   additionalUnits.reduce((sum, unit) => sum + unit.quantity, 0);
+                  newUnits.reduce((sum, unit) => sum + unit.quantity, 0) +
+                  additionalUnits.reduce((sum, unit) => sum + unit.quantity, 0);
 
       // --- Create main appointment ---
       const newAppointment = await appointmentApi.createAppointment({
@@ -575,29 +589,36 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
         discount_type,
         total_units: totalUnits,
         notes: "Client panel booking",
+        stored_loyalty_points: stored_loyalty_points,
       });
 
-      // --- Insert new devices for newUnits ---
-      // for (const unit of newUnits) {
-      //   if (!unit.brand_id || !unit.ac_type_id || !unit.horsepower_id) continue;
-      //   const brand = allBrands.find((b) => b.id === unit.brand_id)?.name || "Unknown";
-      //   const acType = allACTypes.find((t) => t.id === unit.ac_type_id)?.name || "Unknown";
-      //   const deviceName = `${brand} ${acType}`;
-
-      //   for (let i = 0; i < unit.quantity; i++) {
-      //     const newDevice = await deviceApi.createDevice({
-      //       client_id: client.id,
-      //       location_id: selectedLocationId,
-      //       name: deviceName,
-      //       brand_id: unit.brand_id,
-      //       ac_type_id: unit.ac_type_id,
-      //       horsepower_id: unit.horsepower_id,
-      //       last_cleaning_date: null,
-      //       last_repair_date: null,
-      //     });
-      //     newDeviceIds.push(newDevice.id);
-      //   }
-      // }
+      // --- Handle loyalty points redemption ---
+      if (useLoyaltyPoints && loyaltyPointsDiscount > 0) {
+        try {
+          // Calculate actual points to redeem (only multiples of 5)
+          const pointsToRedeem = Math.floor(loyaltyPoints / 5) * 5;
+          
+          if (pointsToRedeem >= 5) {
+            // Find multiple redeemable loyalty points that sum to the points needed
+            const redeemablePointsData = await loyaltyPointsApi.getRedeemablePoints(client.id, pointsToRedeem);
+            
+            if (redeemablePointsData.length > 0) {
+              await loyaltyPointsApi.redeemMultiplePoints(redeemablePointsData);
+              
+              toast.success(`Redeemed ${pointsToRedeem} Presko Reward points for ₱${loyaltyPointsDiscount} discount!`);
+              
+              // Show remaining points if any
+              const remainingPoints = loyaltyPoints % 5;
+              if (remainingPoints > 0) {
+                toast.info(`${remainingPoints} point(s) remaining in your account`);
+              }
+            }
+          }
+        } catch (loyaltyError) {
+          console.error('Error handling Presko Reward points redemption:', loyaltyError);
+          toast.error('Booking successful, but failed to redeem Presko Reward points. Please contact support.');
+        }
+      }
 
       // --- Insert new devices for additionalUnits ---
       for (const unit of additionalUnits) {
@@ -653,6 +674,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
           discount_type: discount_type,
           total_units: additionalServiceDevices.length,
           notes: "Client panel booking - Additional service",
+          stored_loyalty_points: stored_loyalty_points,
         });
 
         const additionalJoinRows = additionalServiceDevices.map((deviceId) => ({
@@ -675,12 +697,10 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
 
         const service = allServices.find(s => s.id === selectedServiceId);
         if (service) {
-           const serviceName = service.name.toLowerCase();
+          const serviceName = service.name.toLowerCase();
           if (serviceName.includes("repair") || serviceName.includes("maintenance")) {
-            //  Repair or maintenance
             updatePayload.last_repair_date = appointmentDate;
           } else if (serviceName.includes("cleaning")) {
-            //  Pure cleaning
             updatePayload.last_cleaning_date = appointmentDate;
           }
         }
@@ -691,6 +711,24 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
       });
 
       await Promise.all(deviceUpdatePromises);
+
+      try {
+        await fetch("/api/send-push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "client_to_admin",
+            client_id: client.id,
+            client_name: client.name,
+            title: "📅 New Booking",
+          }),
+        });
+
+        toast.success("Admins notified!");
+      } catch (err) {
+        console.error("❌ Failed to notify admins", err);
+        toast.error("Failed to notify admins");
+      }
 
       // --- Create notification entry ---
       try {
@@ -722,11 +760,15 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
       setDevices(fetchedDevices);
       setAppointments(fetchedAppointments);
 
-      // Reset forms
+      // Reset forms and loyalty points state
       setNewUnits([]);
       setAdditionalUnits([]);
+      setUseLoyaltyPoints(false);
+      setLoyaltyPointsDiscount(0);
+      
     } catch (err) {
       console.error("Failed to confirm booking:", err);
+      toast.error("Failed to confirm booking. Please try again.");
     } finally {
       handleCloseBookingModal();
       handleCloseSummaryModal();
@@ -781,7 +823,7 @@ export function ClientDashboardTab({ clientId, onBookNewCleaningClick, onReferCl
 
 
   // --- Details Modal Handlers ---
-  const handleOpenDetailsModal = (locationId: UUID, statusType: 'scheduled' | 'due' | 'well-maintained' | 'repair' | 'no-service', serviceName?: string) => {
+  const handleOpenDetailsModal = (locationId: UUID, statusType: 'scheduled' | 'due' | 'well-maintained' | 'repair' | 'no-service' | 'voided', serviceName?: string) => {
     const location = locations.find(loc => loc.id === locationId);
     if (!location) return;
     setModalLocation(location);
@@ -868,7 +910,7 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
   ));
 };
 
-
+  const { refreshKey } = useRealtime();
   useEffect(() => {
     const fetchLookupData = async () => {
       try {
@@ -891,75 +933,59 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
     fetchLookupData();
   }, []);
 
-    const { refreshKey } = useRealtime();
+  
 
-    useEffect(() => {
-      const fetchClientData = async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-          const fetchedClient = await clientApi.getClientById(clientId);
-          if (!fetchedClient) {
-            setError("Client not found.");
-            setIsLoading(false);
-            return;
-          }
+  useEffect(() => {
+    const fetchClientData = async () => {
+      setIsLoading(true);
+      setError(null);
 
-          const [
-            fetchedLocations,
-            fetchedDevices,
-            fetchedAppointments,
-          ] = await Promise.all([
-            clientLocationApi.getByClientId(clientId),
-            deviceApi.getByClientId(clientId),
-            appointmentApi.getByClientId(clientId),
-          ]);
-
-          let pointsExpiry = null;
-          const firstCompletedAppointment = fetchedAppointments.reduce(
-            (earliest, current) => {
-              if (current.status === "completed") {
-                const currentTimestamp = new Date(
-                  current.appointment_date
-                ).getTime();
-                const earliestTimestamp = earliest
-                  ? new Date(earliest.appointment_date).getTime()
-                  : Infinity;
-                return currentTimestamp < earliestTimestamp ? current : earliest;
-              }
-              return earliest;
-            },
-            null as Appointment | null
-          );
-
-          if (firstCompletedAppointment) {
-            pointsExpiry = addYears(
-              new Date(firstCompletedAppointment.appointment_date),
-              1
-            ).toISOString();
-          }
-
-          const updatedClient = await clientApi.updateClient(clientId, {
-            points_expiry: pointsExpiry,
-          });
-
-          setClient(updatedClient);
-          setLocations(fetchedLocations);
-          setDevices(fetchedDevices);
-          setAppointments(fetchedAppointments);
-        } catch (err: any) {
-          console.error("Error fetching client dashboard data:", err);
-          setError(err.message || "Failed to load client data.");
-        } finally {
+      try {
+        const fetchedClient = await clientApi.getClientById(clientId);
+        if (!fetchedClient) {
+          setError("Client not found.");
           setIsLoading(false);
+          return;
         }
-      };
 
-      fetchClientData();
-    }, [clientId, refreshKey]);
+        const [
+          fetchedLocations,
+          fetchedDevices,
+          fetchedAppointments,
+          fetchedPoints,
+          fetchedReferrals,
+          fetchedPointsHistoryResponse,
+          redemptionCount
+        ] = await Promise.all([
+          clientLocationApi.getByClientId(clientId),
+          deviceApi.getByClientId(clientId),
+          appointmentApi.getByClientId(clientId),
+          loyaltyPointsApi.getClientPoints(clientId), 
+          loyaltyPointsApi.getReferralCount(clientId),    
+          loyaltyPointsApi.getLoyaltyPoints(clientId),
+          loyaltyPointsApi.getRedemptionEventCountAccurate(clientId)
+        ]);
 
+        
+        setClient(fetchedClient);
+        setLoyaltyPoints(fetchedPoints);                                  
+        setReferralCount(fetchedReferrals);                               
+        setLoyaltyPointsHistory(fetchedPointsHistoryResponse.data || []); 
+        setRedemptionEventsThisYear(redemptionCount);
+        setLocations(fetchedLocations);
+        setDevices(fetchedDevices);
+        setAppointments(fetchedAppointments);
 
+      } catch (err: any) {
+        console.error("Error fetching client dashboard data:", err);
+        setError(err.message || "Failed to load client data.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
+    fetchClientData();
+  }, [clientId, refreshKey]);
 
 
   const getServiceName = (id: UUID | null) => allServices.find(s => s.id === id)?.name || 'N/A';
@@ -992,209 +1018,195 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
   }, [devices, appointments, refreshKey]);
 
    const getDeviceCleaningStatus = () => {
-    const statusByLocation = new Map<UUID, {
-      location: ClientLocation,
-      totalDevices: number,
-      lastServiceDate: string | null,
-      lastCleaningDate: string | null;
-      lastRepairDate: string | null;
-      serviceGroups: Array<{
-        service: Service,
-        scheduledDevices: number,
-        dueDevices: number, 
-        wellMaintainedDevices: number,
-        repairDevices: number,
+      const statusByLocation = new Map<UUID, {
+        location: ClientLocation,
+        totalDevices: number,
         lastServiceDate: string | null,
-        devices: Array<{
-          device: Device;
-          appointment: Appointment | undefined;
-          status: 'scheduled' | 'due' | 'well-maintained' | 'no-service' | 'repair';
-          brand: string;
-          acType: string;
-          horsepower: string;
-        }>;
-      }>
-    }>();
+        lastCleaningDate: string | null;
+        lastRepairDate: string | null,
+        serviceGroups: Array<{
+          service: Service,
+          scheduledDevices: number,
+          dueDevices: number, 
+          wellMaintainedDevices: number,
+          voidedDevices?: number;
+          repairDevices: number,
+          lastServiceDate: string | null,
+          devices: Array<{
+            device: Device;
+            appointment: Appointment | undefined;
+            status: 'scheduled' | 'due' | 'well-maintained' | 'no-service' | 'repair' | 'voided';
+            brand: string;
+            acType: string;
+            horsepower: string;
+          }>;
+        }>
+      }>();
 
-    const today = new Date();
+      const today = new Date();
 
-    // Initialize locations
-    locations.forEach(location => {
-      statusByLocation.set(location.id, {
-        location,
-        totalDevices: 0,
-        lastServiceDate: null,
-        lastCleaningDate:  null,
-        lastRepairDate:  null,
-        serviceGroups: [],
-      });
-    });
-
-    devices.forEach(device => {
-      const locationId = device.location_id;
-      if (!locationId) return;
-      const locationStatus = statusByLocation.get(locationId);
-      if (!locationStatus) return;
-
-      locationStatus.totalDevices++;
-
-      const cleaningService = allServices.find(s => s.name.toLowerCase().includes('clean'));
-      if (device.last_cleaning_date && cleaningService) {
-        const lastCleanDate = new Date(device.last_cleaning_date);
-        if (!locationStatus.lastServiceDate || lastCleanDate > new Date(locationStatus.lastServiceDate)) {
-          locationStatus.lastServiceDate = device.last_cleaning_date;
-        }
-      }
-
-      const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
-      const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
-      const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
-
-      const linkedAppointmentIds = deviceIdToAppointmentId.get(device.id as UUID) || [];
-      const deviceAppointments = linkedAppointmentIds
-        .map(id => appointments.find(appt => appt.id === id))
-        .filter(Boolean) as Appointment[];
-
-      const confirmedAppts = deviceAppointments.filter(a => a.status === 'confirmed');
-      const completedAppts = deviceAppointments.filter(a => a.status === 'completed');
-      const latestCompleted = completedAppts.sort((a, b) => new Date(b.appointment_date).getTime() - new Date(a.appointment_date).getTime())[0];
-
-      const hasLastCleaning = !!device.last_cleaning_date && completedAppts.some(a => {
-        const service = allServices.find(s => s.id === a.service_id);
-        return service?.name.toLowerCase().includes("clean");
-      });
-      const hasDueDates = !!device.due_3_months && !!device.due_4_months && !!device.due_6_months;
-      const isDue = [device.due_3_months, device.due_4_months, device.due_6_months]
-        .filter(Boolean)
-        .some((d) => new Date(d as string) <= today);
-
-      // --- Step 1: Handle repair appointments (always add if exists) ---
-      confirmedAppts.forEach(appt => {
-        const service = allServices.find(s => s.id === appt.service_id);
-        if (!service) return;
-        const isRepairService = service.name.toLowerCase().includes('repair') || service.name.toLowerCase().includes('maintenance');
-        if (isRepairService) {
-          let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === service.id);
-          if (!serviceGroup) {
-            serviceGroup = {
-              service,
-              scheduledDevices: 0,
-              dueDevices: 0,
-              wellMaintainedDevices: 0,
-              repairDevices: 0,
-              lastServiceDate: null,
-              devices: []
-            };
-            locationStatus.serviceGroups.push(serviceGroup);
-          }
-          serviceGroup.repairDevices++;
-          serviceGroup.devices.push({ device, appointment: appt, status: 'repair', brand, acType, horsepower});
-        }
-      });
-
-      // --- Step 2: Handle cleaning-related appointments/status ---
-      const cleaningAppts = confirmedAppts.filter(appt => {
-        const service = allServices.find(s => s.id === appt.service_id);
-        if (!service) return false;
-        return service.name.toLowerCase().includes('clean');
-      });
-
-      if (cleaningAppts.length > 0) {
-        cleaningAppts.forEach(appt => {
-          const service = allServices.find(s => s.id === appt.service_id);
-          if (!service) return;
-          let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === service.id);
-          if (!serviceGroup) {
-            serviceGroup = {
-              service,
-              scheduledDevices: 0,
-              dueDevices: 0,
-              wellMaintainedDevices: 0,
-              repairDevices: 0,
-              lastServiceDate: null,
-              devices: []
-            };
-            locationStatus.serviceGroups.push(serviceGroup);
-          }
-          serviceGroup.scheduledDevices++;
-          serviceGroup.devices.push({ device, appointment: appt, status: 'scheduled', brand, acType, horsepower });
+      // Initialize locations
+      locations.forEach(location => {
+        statusByLocation.set(location.id, {
+          location,
+          totalDevices: 0,
+          lastServiceDate: null,
+          lastCleaningDate:  null,
+          lastRepairDate:  null,
+          serviceGroups: [],
         });
-      } else {
-        // No confirmed cleaning appointment → fallback to last cleaning / due logic
-        let deviceStatus: 'scheduled' | 'due' | 'well-maintained' | 'no-service' = 'no-service';
-        let serviceToUse: Service | undefined = undefined;
-        let appointmentToUse: Appointment | undefined = undefined;
+      });
 
-        const latestCompletedCleaning = completedAppts
-          .map(a => {
-            const service = allServices.find(s => s.id === a.service_id);
-            return { appt: a, service };
-          })
-          .filter(x => x.service?.name.toLowerCase().includes("clean"))
-          .sort((a, b) => new Date(b.appt.appointment_date).getTime() - new Date(a.appt.appointment_date).getTime())[0];
+      devices.forEach(device => {
+        const locationId = device.location_id;
+        if (!locationId) return;
+        const locationStatus = statusByLocation.get(locationId);
+        if (!locationStatus) return;
 
-        // Find any confirmed CLEANING appointment
-        const confirmedCleaningAppt = confirmedAppts.find(appt => {
-          const service = allServices.find(s => s.id === appt.service_id);
+        locationStatus.totalDevices++;
+
+        const cleaningService = allServices.find(s => s.name.toLowerCase().includes('clean'));
+        if (device.last_cleaning_date && cleaningService) {
+          const lastCleanDate = new Date(device.last_cleaning_date);
+          if (!locationStatus.lastServiceDate || lastCleanDate > new Date(locationStatus.lastServiceDate)) {
+            locationStatus.lastServiceDate = device.last_cleaning_date;
+          }
+        }
+
+        const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
+        const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
+        const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
+
+        const linkedAppointmentIds = deviceIdToAppointmentId.get(device.id as UUID) || [];
+        const deviceAppointments = linkedAppointmentIds
+          .map(id => appointments.find(appt => appt.id === id))
+          .filter(Boolean) as Appointment[];
+
+        const confirmedAppts = deviceAppointments.filter(a => a.status === 'confirmed');
+        const completedAppts = deviceAppointments.filter(a => a.status === 'completed');
+
+        const hasLastCleaning = !!device.last_cleaning_date && completedAppts.some(a => {
+          const service = allServices.find(s => s.id === a.service_id);
           return service?.name.toLowerCase().includes("clean");
         });
+        const hasDueDates = !!device.due_3_months && !!device.due_4_months && !!device.due_6_months;
+        const isDue = [device.due_3_months, device.due_4_months, device.due_6_months]
+          .filter(Boolean)
+          .some((d) => new Date(d as string) <= today);
 
-        if (confirmedCleaningAppt) {
-          // scheduled Cleaning
-          deviceStatus = "scheduled";
-          serviceToUse = allServices.find(s => s.id === confirmedCleaningAppt.service_id);
-          appointmentToUse = confirmedCleaningAppt;
-
-        } else if (latestCompletedCleaning) {
-          // Completed Cleaning → decide due vs well-maintained
-          if (hasDueDates) {
-            deviceStatus = isDue ? "due" : "well-maintained";
-          } else {
-            deviceStatus = "well-maintained";
+        // --- Step 1: Handle repair appointments (always add if exists) ---
+        confirmedAppts.forEach(appt => {
+          const service = allServices.find(s => s.id === appt.service_id);
+          if (!service) return;
+          const isRepairService = service.name.toLowerCase().includes('repair') || service.name.toLowerCase().includes('maintenance');
+          if (isRepairService) {
+            let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === service.id);
+            if (!serviceGroup) {
+              serviceGroup = {
+                service,
+                scheduledDevices: 0,
+                dueDevices: 0,
+                wellMaintainedDevices: 0,
+                repairDevices: 0,
+                lastServiceDate: null,
+                devices: []
+              };
+              locationStatus.serviceGroups.push(serviceGroup);
+            }
+            serviceGroup.repairDevices++;
+            serviceGroup.devices.push({ device, appointment: appt, status: 'repair', brand, acType, horsepower});
           }
-          serviceToUse = latestCompletedCleaning.service!;
-          appointmentToUse = latestCompletedCleaning.appt;
+        });
 
+        // --- Step 2: Handle cleaning-related appointments/status ---
+        const cleaningAppts = confirmedAppts.filter(appt => {
+          const service = allServices.find(s => s.id === appt.service_id);
+          if (!service) return false;
+          return service.name.toLowerCase().includes('clean');
+        });
+
+        if (cleaningAppts.length > 0) {
+          cleaningAppts.forEach(appt => {
+            const service = allServices.find(s => s.id === appt.service_id);
+            if (!service) return;
+            let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === service.id);
+            if (!serviceGroup) {
+              serviceGroup = {
+                service,
+                scheduledDevices: 0,
+                dueDevices: 0,
+                wellMaintainedDevices: 0,
+                repairDevices: 0,
+                voidedDevices: 0,
+                lastServiceDate: null,
+                devices: []
+              };
+              locationStatus.serviceGroups.push(serviceGroup);
+            }
+            serviceGroup.scheduledDevices++;
+            serviceGroup.devices.push({ device, appointment: appt, status: 'scheduled', brand, acType, horsepower });
+          });
         } else {
-          //  No cleaning appointments at all → don't push into cleaning groups
-          deviceStatus = "no-service";
-          serviceToUse = undefined;
-          appointmentToUse = undefined;
-        }
+          let deviceStatus: 'scheduled' | 'due' | 'well-maintained' | 'voided' | 'no-service' = 'no-service';
+          let serviceToUse: Service | undefined = undefined;
+          let appointmentToUse: Appointment | undefined = undefined;
 
-        if (serviceToUse) {
-          let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === serviceToUse!.id);
-          if (!serviceGroup) {
-            serviceGroup = {
-              service: serviceToUse,
-              scheduledDevices: 0,
-              dueDevices: 0,
-              wellMaintainedDevices: 0,
-              repairDevices: 0,
-              lastServiceDate: null,
-              devices: []
-            };
-            locationStatus.serviceGroups.push(serviceGroup);
+          const voidedAppts = deviceAppointments.filter(a => a.status === 'voided');
+          const latestVoidedCleaning = voidedAppts
+            .map(appt => ({ appt, service: allServices.find(s => s.id === appt.service_id) }))
+            .filter(x => x.service?.name.toLowerCase().includes("clean"));
+
+          const latestCompletedCleaning = completedAppts
+            .map(a => ({ appt: a, service: allServices.find(s => s.id === a.service_id) }))
+            .filter(x => x.service?.name.toLowerCase().includes("clean"));
+
+          // Merge voided + completed, sort by date, pick latest
+          const latestCleaning = [...latestVoidedCleaning, ...latestCompletedCleaning]
+            .sort((a, b) => new Date(b.appt.appointment_date).getTime() - new Date(a.appt.appointment_date).getTime())[0];
+
+          if (latestCleaning) {
+            if (latestCleaning.appt.status === "voided") {
+              deviceStatus = "voided";
+            } else {
+              deviceStatus = hasDueDates && isDue ? "due" : "well-maintained";
+            }
+            serviceToUse = latestCleaning.service!;
+            appointmentToUse = latestCleaning.appt;
           }
 
-          if (deviceStatus === 'due') serviceGroup.dueDevices++;
-          else if (deviceStatus === 'well-maintained') serviceGroup.wellMaintainedDevices++;
+          if (serviceToUse) {
+            let serviceGroup = locationStatus.serviceGroups.find(sg => sg.service.id === serviceToUse!.id);
+            if (!serviceGroup) {
+              serviceGroup = {
+                service: serviceToUse,
+                scheduledDevices: 0,
+                dueDevices: 0,
+                wellMaintainedDevices: 0,
+                voidedDevices: 0,
+                repairDevices: 0,
+                lastServiceDate: null,
+                devices: []
+              };
+              locationStatus.serviceGroups.push(serviceGroup);
+            }
 
-          serviceGroup.devices.push({ device, appointment: appointmentToUse, status: deviceStatus, brand, acType, horsepower });
+            if (deviceStatus === 'due') serviceGroup.dueDevices++;
+            else if (deviceStatus === 'well-maintained') serviceGroup.wellMaintainedDevices++;
+            else if (deviceStatus === 'voided') serviceGroup.voidedDevices = (serviceGroup.voidedDevices || 0) + 1;
+
+            serviceGroup.devices.push({ device, appointment: appointmentToUse, status: deviceStatus, brand, acType, horsepower });
+          }
         }
-      }
-    });
+      });
 
-        return Array.from(statusByLocation.values()).map(locationStatus => {
+      return Array.from(statusByLocation.values()).map(locationStatus => {
         const allDeviceEntries: any[] = [];
         const uniqueDeviceIds = new Set<string>();
         let totalScheduled = 0;
         let totalDue = 0;
         let totalWellMaintained = 0;
-        
+        let totalVoided = 0;
 
-        // track as timestamp to avoid re-parsing
-        let lastCleaningDateTs: number | null = null;
         let lastCleaningDate: string | null = null;
 
         locationStatus.serviceGroups.forEach(serviceGroup => {
@@ -1202,29 +1214,26 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
             serviceGroup.service.name.toLowerCase().includes('repair') ||
             serviceGroup.service.name.toLowerCase().includes('maintenance');
 
-          //  Only consider CLEANING appointments for lastCleaningDate
+          // Only consider CLEANING appointments for lastCleaningDate
           if (!isRepair) {
-          serviceGroup.devices.forEach(deviceEntry => {
-            if (
-              deviceEntry.appointment &&
-              deviceEntry.appointment.status === "completed" &&
-              serviceGroup.service?.name?.toLowerCase().includes("clean")
-            ) {
-              const candidateDate = deviceEntry.appointment.appointment_date;
-
-              if (candidateDate) {
-                if (!lastCleaningDate || candidateDate > lastCleaningDate) {
-                  lastCleaningDate = candidateDate; // stays as yyyy-mm-dd
+            serviceGroup.devices.forEach(deviceEntry => {
+              if (
+                deviceEntry.appointment &&
+                deviceEntry.appointment.status === "completed" &&
+                serviceGroup.service?.name?.toLowerCase().includes("clean")
+              ) {
+                const candidateDate = deviceEntry.appointment.appointment_date;
+                if (candidateDate) {
+                  if (!lastCleaningDate || candidateDate > lastCleaningDate) {
+                    lastCleaningDate = candidateDate;
+                  }
                 }
               }
-            }
-          });
-        }
+            });
+          }
 
-        serviceGroup.lastServiceDate = lastCleaningDate;
+          serviceGroup.lastServiceDate = lastCleaningDate;
 
-
-          // keep your existing counting & collection
           if (isRepair) {
             serviceGroup.devices.forEach(deviceEntry => {
               uniqueDeviceIds.add(deviceEntry.device.id);
@@ -1236,6 +1245,7 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
           totalScheduled += serviceGroup.scheduledDevices;
           totalDue += serviceGroup.dueDevices;
           totalWellMaintained += serviceGroup.wellMaintainedDevices;
+          totalVoided += serviceGroup.voidedDevices || 0;
 
           serviceGroup.devices.forEach(deviceEntry => {
             uniqueDeviceIds.add(deviceEntry.device.id);
@@ -1249,18 +1259,18 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
           scheduledDevices: totalScheduled,
           dueDevices: totalDue,
           wellMaintainedDevices: totalWellMaintained,
+          voidedDevices: totalVoided,
           devices: allDeviceEntries,
           serviceGroups: locationStatus.serviceGroups,
-          // ⚠️ if you need it here too
-          lastCleaningDate: lastCleaningDateTs ? new Date(lastCleaningDateTs).toISOString() : null,
+          lastCleaningDate: lastCleaningDate,
         };
       }).sort((a, b) => {
-      if (a.location.is_primary && !b.location.is_primary) return -1;
-      if (!a.location.is_primary && b.location.is_primary) return 1;
-      return a.location.name.localeCompare(b.location.name);
-    });
+        if (a.location.is_primary && !b.location.is_primary) return -1;
+        if (!a.location.is_primary && b.location.is_primary) return 1;
+        return a.location.name.localeCompare(b.location.name);
+      });
+    };
 
-  };
   
   const cleaningStatuses = getDeviceCleaningStatus();
   
@@ -1579,6 +1589,107 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
     };
   };
 
+  // Add this helper function to calculate loyalty points discount
+  const calculateLoyaltyPointsDiscount = (points: number): number => {
+    if (points <= 0) return 0;
+    
+    // New calculation: Only redeem in multiples of 5 points
+    // 1 point = ₱100, but can only redeem 5+ points at a time
+    const redeemablePoints = Math.floor(points / 5) * 5; // Round down to nearest multiple of 5
+    return redeemablePoints * 100; // 1 point = ₱100
+  };
+
+  // Add this helper function to check if loyalty points can be used
+  const canUseLoyaltyPoints = (): boolean => {
+    if (!client || loyaltyPoints <= 0) return false;
+    
+    // Check if client has friends/family discount (discounted = true)
+    if (client.discounted) return false;
+    
+    return true;
+  };
+
+  // Updated checkRedemptionLimit function
+  const checkRedemptionLimit = async (): Promise<boolean> => {
+    try {
+      if (!client) return false;
+      
+      // Fetch the latest redemption count from database
+      const currentRedemptionCount = await loyaltyPointsApi.getRedemptionEventCountAccurate(client.id);
+      
+      // Update the local state with fresh data
+      setRedemptionEventsThisYear(currentRedemptionCount);
+      
+      console.log(`Current redemption events this year: ${currentRedemptionCount}/3`);
+      
+      // Check if under the limit
+      return currentRedemptionCount < 10000; // Max 3 redemption events per year
+    } catch (error) {
+      console.error('Error checking redemption limit:', error);
+      return false;
+    }
+  };
+
+  // Add this handler for loyalty points toggle
+  const handleLoyaltyPointsToggle = async (checked: boolean) => {
+    if (!client) return;
+    
+    // Check if client has friends/family discount
+    if (client.discounted) {
+      setShowFriendsDiscountWarning(true);
+      return;
+    }
+    
+    if (checked) {
+      // Always fetch fresh redemption count from database
+      const canRedeem = await checkRedemptionLimit();
+      
+      if (!canRedeem) {
+        // Get the actual count for a more informative message
+        const currentCount = await loyaltyPointsApi.getRedemptionEventCountAccurate(client.id);
+        alert(`You have already redeemed loyalty points ${currentCount} times this year. Maximum of 3 redemptions per year allowed.`);
+        return;
+      }
+      
+      const discount = calculateLoyaltyPointsDiscount(loyaltyPoints);
+      setLoyaltyPointsDiscount(discount);
+      setUseLoyaltyPoints(true);
+    } else {
+      setLoyaltyPointsDiscount(0);
+      setUseLoyaltyPoints(false);
+    }
+  };
+
+  // Optional: Add a helper to refresh redemption count periodically
+  const refreshRedemptionCount = async () => {
+    if (!client) return;
+    
+    try {
+      const updatedCount = await loyaltyPointsApi.getRedemptionEventCountAccurate(client.id);
+      setRedemptionEventsThisYear(updatedCount);
+    } catch (error) {
+      console.error('Error refreshing redemption count:', error);
+    }
+  };
+
+  const calculateCombinedTotalPriceWithLoyalty = () => {
+    const basePricing = calculateCombinedTotalPrice();
+    
+    let finalTotal = basePricing.total;
+    let loyaltyDiscount = 0;
+    
+    if (useLoyaltyPoints && loyaltyPointsDiscount > 0) {
+      loyaltyDiscount = Math.min(loyaltyPointsDiscount, finalTotal); // Can't discount more than total
+      finalTotal = Math.max(0, finalTotal - loyaltyDiscount); // Ensure total doesn't go below 0
+    }
+    
+    return {
+      ...basePricing,
+      loyaltyPointsDiscount: loyaltyDiscount,
+      finalTotal: finalTotal
+    };
+  };
+
   // Calculate combined total price for both services
   const calculateCombinedTotalPrice = () => {
     const mainPricing = calculateTotalPrice();
@@ -1631,9 +1742,19 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
   return (
     <>
       <div className="space-y-8">
-        <DashboardHeader clientName={client.name} locationLabel={primaryLocation ? `${primaryLocation.city_name}, Philippines` : 'Philippines'} />
+        <DashboardHeader
+          clientName={client.name}
+          locationLabel={
+            primaryLocation
+              ? `${primaryLocation.city_name}, Philippines`
+              : "Philippines"
+          }
+          points={client.points}
+          loyaltyPoints={loyaltyPoints}
+          onViewProfile={() => onViewProfile()} // ✅ add this
+        />
 
-        <StatsOverview points={client.points} bookingsCount={appointments.length} devicesCount={devices.length} />
+        <StatsOverview referralCount={referralCount} loyaltyPoints={loyaltyPoints} bookingsCount={appointments.length} devicesCount={devices.length} appointments={appointments} />
 
         <ClientStatusDash 
           cleaningStatuses={currentCleaningStatuses} 
@@ -1662,6 +1783,7 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
         points={client?.points ?? 0}
         pointsExpiry={client?.points_expiry}
         getServiceName={getServiceName}
+        clientId={clientId}
         locations={locations}
         devices={devices}
         brands={allBrands}                   
@@ -1675,6 +1797,8 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
           setDevices((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
         }}
         onReferClick={onReferClick}
+        allServices={allServices || []}
+        loyaltyPointsHistory={loyaltyPointsHistory}
       />
 
       </div>
@@ -1759,111 +1883,260 @@ const handleUpdateAdditionalUnit = (index: number, field: string, value: any) =>
         availableBlockedDates={availableBlockedDates}
       />
 
-            {/* NEW: Summary Modal */}
-       {isSummaryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 relative">
-            <button onClick={handleCloseSummaryModal} className="absolute top-4 right-4 text-gray-500 hover:text-gray-800">
-              <X className="w-6 h-6" />
-            </button>
-            <h2 className="text-3xl font-bold mb-6 text-gray-800">Booking Summary ✨</h2>
-            <div className="space-y-6">
-              <div className="p-6 bg-blue-50 rounded-lg border-2 border-blue-200">
-                <div className="flex items-center mb-2">
-                  
-                  {getServiceIcon(allServices.find(s => s.id === selectedServiceId)?.name || 'N/A')}
-                  <h3 className="text-xl font-bold text-blue-800">{allServices.find(s => s.id === selectedServiceId)?.name}</h3>
-                </div>
-                <div className="flex items-center text-gray-600 mb-4">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  <span className="font-medium text-gray-700">{format(new Date(bookingDate), 'MMMM d, yyyy')}</span>
-                </div>
-                <div className="text-gray-600">
-                  <span className="font-bold">Devices:</span>
-                  {(selectedDevices.length > 0 || newUnits.length > 0 || additionalUnits.length > 0) ? (
-                    <ul className="list-disc pl-5 mt-2 text-gray-700 space-y-1">
-                      {selectedDevices.map(deviceId => {
-                        const device = devices.find(d => d.id === deviceId);
-                        if (!device) return null;
-                        const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
-                        const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
-                        const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
-                        return (<li key={`sel-${device.id}`}>{`${device.name} (${brand} ${acType} ${horsepower})`}</li>);
-                      })}
-                      {newUnits.map((unit, index) => {
-                        if (!unit.brand_id || !unit.ac_type_id || !unit.horsepower_id) return null;
-                        const brand = allBrands.find(b => b.id === unit.brand_id)?.name || 'N/A';
-                        const acType = allACTypes.find(t => t.id === unit.ac_type_id)?.name || 'N/A';
-                        const horsepower = allHorsepowerOptions.find(h => h.id === unit.horsepower_id)?.display_name || 'N/A';
-                        return (<li key={`new-${index}`}>{`New Unit: ${brand} ${acType} ${horsepower} (Qty: ${unit.quantity})`}</li>);
-                      })}
-                      {additionalUnits.map((unit, index) => {
-                        if (!unit.brand_id || !unit.ac_type_id || !unit.horsepower_id) return null;
-                        const brand = allBrands.find(b => b.id === unit.brand_id)?.name || 'N/A';
-                        const acType = allACTypes.find(t => t.id === unit.ac_type_id)?.name || 'N/A';
-                        const horsepower = allHorsepowerOptions.find(h => h.id === unit.horsepower_id)?.display_name || 'N/A';
-                        return (<li key={`additional-${index}`}>{`New Unit: ${brand} ${acType} ${horsepower} (Qty: ${unit.quantity})`}</li>);
-                      })}
-                    </ul>
-                  ) : (<span className="ml-1">-</span>)}
-                </div>
-              </div>
-              {showAdditionalService && additionalServiceId && additionalServiceDevices.length > 0 && (
-                <div className="p-6 bg-purple-50 rounded-lg border-2 border-purple-200">
-                  <div className="flex items-center mb-2">
-                    {getServiceIcon(allServices.find(s => s.id === additionalServiceId)?.name || 'N/A')}
-                    <h3 className="text-xl font-bold text-purple-800">{allServices.find(s => s.id === additionalServiceId)?.name}</h3>
+      {/* NEW: Summary Modal */}
+      {isSummaryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[95vh] sm:max-h-[90vh] relative flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
+              <button onClick={handleCloseSummaryModal} className="absolute top-4 right-4 text-gray-500 hover:text-gray-800 z-10">
+                <X className="w-6 h-6" />
+              </button>
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 pr-8">Booking Summary</h2>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+              <div className="space-y-4 sm:space-y-6">
+                {/* Primary Service */}
+                <div className="p-3 sm:p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+                  <div className="flex items-start mb-2">
+                    {getServiceIcon(allServices.find(s => s.id === selectedServiceId)?.name || 'N/A')}
+                    <h3 className="text-base sm:text-lg lg:text-xl font-bold text-blue-800 ml-2 leading-tight">
+                      {allServices.find(s => s.id === selectedServiceId)?.name}
+                    </h3>
                   </div>
-                  <div className="flex items-center text-gray-600 mb-4">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span className="font-medium text-gray-700">{format(new Date(additionalServiceDate), 'MMMM d, yyyy')}</span>
+                  <div className="flex items-center text-gray-600 mb-3">
+                    <Calendar className="w-4 h-4 mr-2 flex-shrink-0" />
+                    <span className="font-medium text-gray-700 text-sm sm:text-base">
+                      {format(new Date(bookingDate), 'MMMM d, yyyy')}
+                    </span>
                   </div>
                   <div className="text-gray-600">
-                    <span className="font-bold">Devices:</span>
-                    <ul className="list-disc pl-5 mt-2 text-gray-700 space-y-1">
-                      {additionalServiceDevices.map(deviceId => {
-                        const device = devices.find(d => d.id === deviceId);
-                        if (!device) return null;
-                        const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
-                        const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
-                        const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
-                        return (<li key={device.id}>{`${device.name} (${brand} ${acType} ${horsepower})`}</li>);
-                      })}
-                    </ul>
+                    <span className="font-bold text-sm sm:text-base block mb-2">Devices:</span>
+                    {(selectedDevices.length > 0 || newUnits.length > 0 || additionalUnits.length > 0) ? (
+                      <div className="bg-white rounded p-2 max-h-32 sm:max-h-40 overflow-y-auto">
+                        <ul className="space-y-1">
+                          {selectedDevices.map(deviceId => {
+                            const device = devices.find(d => d.id === deviceId);
+                            if (!device) return null;
+                            const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
+                            const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
+                            const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
+                            return (
+                              <li key={`sel-${device.id}`} className="text-xs sm:text-sm text-gray-700 bg-gray-50 p-2 rounded border-l-4 border-blue-400">
+                                <div className="font-medium">{device.name}</div>
+                                <div className="text-gray-600">{brand} • {acType} • {horsepower}</div>
+                              </li>
+                            );
+                          })}
+                          {newUnits.map((unit, index) => {
+                            if (!unit.brand_id || !unit.ac_type_id || !unit.horsepower_id) return null;
+                            const brand = allBrands.find(b => b.id === unit.brand_id)?.name || 'N/A';
+                            const acType = allACTypes.find(t => t.id === unit.ac_type_id)?.name || 'N/A';
+                            const horsepower = allHorsepowerOptions.find(h => h.id === unit.horsepower_id)?.display_name || 'N/A';
+                            return (
+                              <li key={`new-${index}`} className="text-xs sm:text-sm text-gray-700 bg-gray-50 p-2 rounded border-l-4 border-green-400">
+                                <div className="font-medium">New Unit (Qty: {unit.quantity})</div>
+                                <div className="text-gray-600">{brand} • {acType} • {horsepower}</div>
+                              </li>
+                            );
+                          })}
+                          {additionalUnits.map((unit, index) => {
+                            if (!unit.brand_id || !unit.ac_type_id || !unit.horsepower_id) return null;
+                            const brand = allBrands.find(b => b.id === unit.brand_id)?.name || 'N/A';
+                            const acType = allACTypes.find(t => t.id === unit.ac_type_id)?.name || 'N/A';
+                            const horsepower = allHorsepowerOptions.find(h => h.id === unit.horsepower_id)?.display_name || 'N/A';
+                            return (
+                              <li key={`additional-${index}`} className="text-xs sm:text-sm text-gray-700 bg-gray-50 p-2 rounded border-l-4 border-green-400">
+                                <div className="font-medium">New Unit (Qty: {unit.quantity})</div>
+                                <div className="text-gray-600">{brand} • {acType} • {horsepower}</div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : (
+                      <span className="text-gray-500">-</span>
+                    )}
                   </div>
                 </div>
-              )}
-              <div className="p-6 bg-gray-100 rounded-xl">
-                <h3 className="text-2xl font-bold mb-4 text-gray-800">Price Breakdown 💸</h3>
-                {(() => {
-                  const pricing = calculateCombinedTotalPrice();
-                  return (
-                    <div className="space-y-3 text-lg">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Subtotal:</span>
-                        <span className="font-semibold text-gray-800">₱{pricing.subtotal.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Discount ({pricing.discount}% - {pricing.discount_type}):</span>
-                        <span className="font-semibold text-red-600">-₱{pricing.discountAmount.toLocaleString()}</span>
-                      </div>
-                      <div className="border-t-2 border-gray-300 pt-4 mt-4">
-                        <div className="flex justify-between items-center text-xl font-extrabold">
-                          <span className="text-gray-800">Total Amount:</span>
-                          <span className="text-blue-600">₱{pricing.total.toLocaleString()}</span>
-                        </div>
+
+                {/* Additional Service */}
+                {showAdditionalService && additionalServiceId && additionalServiceDevices.length > 0 && (
+                  <div className="p-3 sm:p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+                    <div className="flex items-start mb-2">
+                      {getServiceIcon(allServices.find(s => s.id === additionalServiceId)?.name || 'N/A')}
+                      <h3 className="text-base sm:text-lg lg:text-xl font-bold text-purple-800 ml-2 leading-tight">
+                        {allServices.find(s => s.id === additionalServiceId)?.name}
+                      </h3>
+                    </div>
+                    <div className="flex items-center text-gray-600 mb-3">
+                      <Calendar className="w-4 h-4 mr-2 flex-shrink-0" />
+                      <span className="font-medium text-gray-700 text-sm sm:text-base">
+                        {format(new Date(additionalServiceDate), 'MMMM d, yyyy')}
+                      </span>
+                    </div>
+                    <div className="text-gray-600">
+                      <span className="font-bold text-sm sm:text-base block mb-2">Devices:</span>
+                      <div className="bg-white rounded p-2 max-h-40 overflow-y-auto">
+                        <ul className="space-y-1">
+                          {additionalServiceDevices.map(deviceId => {
+                            const device = devices.find(d => d.id === deviceId);
+                            if (!device) return null;
+                            const brand = allBrands.find(b => b.id === device.brand_id)?.name || 'N/A';
+                            const acType = allACTypes.find(t => t.id === device.ac_type_id)?.name || 'N/A';
+                            const horsepower = allHorsepowerOptions.find(h => h.id === device.horsepower_id)?.display_name || 'N/A';
+                            return (
+                              <li key={device.id} className="text-xs sm:text-sm text-gray-700 bg-gray-50 p-2 rounded border-l-4 border-purple-400">
+                                <div className="font-medium">{device.name}</div>
+                                <div className="text-gray-600">{brand} • {acType} • {horsepower}</div>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
+
+                {/* Loyalty Points Section */}
+                {canUseLoyaltyPoints() && loyaltyPoints >= 5 && (
+                  <div className="p-3 sm:p-4 bg-green-50 rounded-lg border-2 border-green-200">
+                    <div className="flex flex-col space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 mr-3">
+                          <h3 className="text-sm sm:text-base lg:text-lg font-bold text-green-800">Use Presko Reward Points</h3>
+                          <p className="text-xs sm:text-sm text-green-600 mt-1">
+                            Available: {loyaltyPoints} Presko reward points
+                          </p>
+                          <p className="text-xs sm:text-sm text-green-600">
+                            Can redeem: {Math.floor(loyaltyPoints / 5) * 5} points = ₱{calculateLoyaltyPointsDiscount(loyaltyPoints)} discount
+                          </p>
+                          {loyaltyPoints % 5 > 0 && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              {loyaltyPoints % 5} point(s) will remain (minimum 5 points required)
+                            </p>
+                          )}
+                        </div>
+                        <Checkbox
+                          checked={useLoyaltyPoints}
+                          onCheckedChange={handleLoyaltyPointsToggle}
+                          className="h-5 w-5 flex-shrink-0"
+                        />
+                      </div>
+                      {useLoyaltyPoints && (
+                        <div className="text-xs sm:text-sm text-green-700 bg-green-100 p-3 rounded">
+                          <div className="flex items-start">
+                            <Star className="w-4 h-4 mr-2 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <div>Using {Math.floor(loyaltyPoints / 5) * 5} loyalty points for ₱{loyaltyPointsDiscount} discount</div>
+                              {loyaltyPoints % 5 > 0 && (
+                                <div className="text-amber-700 mt-1">
+                                  {loyaltyPoints % 5} point(s) remaining in your account
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Friends/Family Discount Warning */}
+                {client?.discounted && (
+                  <div className="p-3 sm:p-4 bg-amber-50 rounded-lg border-2 border-amber-200">
+                    <div className="flex items-start">
+                      <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 mr-2 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs sm:text-sm text-amber-800">
+                        No points for this booking since a friends discount is applied.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Price Breakdown */}
+                <div className="p-3 sm:p-4 bg-gray-100 rounded-xl">
+                  <h3 className="text-lg sm:text-xl lg:text-2xl font-bold mb-4 text-gray-800">Price Breakdown</h3>
+                  {(() => {
+                    const pricing = calculateCombinedTotalPriceWithLoyalty();
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center text-sm sm:text-base">
+                          <span className="text-gray-600">Subtotal:</span>
+                          <span className="font-semibold text-gray-800">₱{pricing.subtotal.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm sm:text-base">
+                          <span className="text-gray-600 flex-1 mr-2">
+                            Discount ({pricing.discount}% - {pricing.discount_type}):
+                          </span>
+                          <span className="font-semibold text-red-600 flex-shrink-0">
+                            -₱{pricing.discountAmount.toLocaleString()}
+                          </span>
+                        </div>
+                        {pricing.loyaltyPointsDiscount > 0 && (
+                          <div className="flex justify-between items-center text-sm sm:text-base">
+                            <span className="text-gray-600 flex-1 mr-2">Presko Rewards Discount:</span>
+                            <span className="font-semibold text-green-600 flex-shrink-0">
+                              -₱{pricing.loyaltyPointsDiscount.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        <div className="border-t-2 border-gray-300 pt-3 mt-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-base sm:text-lg lg:text-xl font-extrabold text-gray-800 flex-1 mr-2">
+                              Total Amount:
+                            </span>
+                            <span className="text-base sm:text-lg lg:text-xl font-extrabold text-blue-600 flex-shrink-0">
+                              ₱{pricing.finalTotal.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
-            <div className="flex justify-end mt-8 space-x-4">
-              <Button onClick={handleCloseSummaryModal} variant="outline" className="rounded-lg w-full sm:w-auto rounded-lg border-teal-400 text-teal-600 shadow-md">
-                Go Back
-              </Button>
-              <Button variant = "outline" onClick={handleConfirmBooking} className="rounded-lg w-full sm:w-auto rounded-lg border-teal-400 text-teal-600 shadow-md bg-white hover:bg-white font-bold py-2 px-6">
-                Confirm Booking
+
+            {/* Fixed Footer Buttons */}
+            <div className="flex-shrink-0 p-4 sm:p-6 border-t border-gray-200 bg-gray-50">
+              <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4">
+                <Button 
+                  onClick={handleCloseSummaryModal} 
+                  variant="outline" 
+                  className="w-full sm:w-auto rounded-lg border-teal-400 text-teal-600 shadow-md order-2 sm:order-1"
+                >
+                  Go Back
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleConfirmBooking} 
+                  className="w-full sm:w-auto rounded-lg border-teal-400 text-teal-600 shadow-md bg-white hover:bg-white font-bold py-2 px-6 order-1 sm:order-2"
+                >
+                  Confirm Booking
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Friends/Family Discount Warning Modal */}
+      {showFriendsDiscountWarning && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex flex-col items-center space-y-4">
+              <AlertCircle className="w-12 h-12 text-amber-500" />
+              <h3 className="text-lg font-bold text-gray-800">Cannot Use Points</h3>
+              <p className="text-center text-gray-600">
+                No points for this booking since a friends discount is applied.
+              </p>
+              <Button 
+                onClick={() => setShowFriendsDiscountWarning(false)} 
+                className="w-full rounded-lg border-teal-400 text-teal-600 shadow-md"
+                variant="outline"
+              >
+                OK
               </Button>
             </div>
           </div>

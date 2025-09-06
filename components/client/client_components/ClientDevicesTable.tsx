@@ -12,6 +12,7 @@ import {
   HorsepowerOption,
   UUID,
   Appointment,
+  Service,
 } from "../../../types/database";
 
 interface ClientDevicesTableProps {
@@ -24,6 +25,7 @@ interface ClientDevicesTableProps {
   itemsPerPage?: number;
   appointments: Appointment[];
   deviceIdToAppointmentId: Map<UUID, UUID[]>;
+  allServices: Service[];   
 }
 
 export function ClientDevicesTable({
@@ -36,6 +38,7 @@ export function ClientDevicesTable({
   itemsPerPage = 5,
   appointments,
   deviceIdToAppointmentId,
+  allServices
 }: ClientDevicesTableProps) {
   const [currentPage, setCurrentPage] = React.useState(1);
 
@@ -52,46 +55,78 @@ export function ClientDevicesTable({
   const getHorsepowerName = (id: UUID | null) =>
     id ? horsepowerOptions.find((h) => h.id === id)?.display_name || "-" : "-";
 
-    const getDeviceStatus = (device: Device): string => {
-  // 🔹 First check if there are linked appointments
+  const getDeviceStatus = (
+    device: Device,
+    allServices: Service[],
+    appointments: Appointment[],
+    deviceIdToAppointmentId: Map<UUID, UUID[]>
+  ): string => {
     const apptIds = deviceIdToAppointmentId.get(device.id) || [];
     const linkedAppointments = apptIds
       .map((id) => appointments.find((a) => a.id === id))
       .filter((a): a is Appointment => !!a);
 
-    // If any appointment is "confirmed" → show as scheduled
-    if (linkedAppointments.some((a) => a.status === "confirmed")) {
-      return "scheduled";
+    // Helper: robustly get a timestamp for sorting
+    const getApptTime = (a: Appointment): number => {
+      const cand =
+        // try common fields (change names to your schema if needed)
+        (a as any).scheduled_date ||
+        (a as any).scheduled_at ||
+        (a as any).preferred_date ||
+        (a as any).date ||
+        (a as any).created_at ||
+        (a as any).updated_at;
+      const t = cand ? new Date(cand as string).getTime() : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    // Only appointments that are for a cleaning service
+    const cleaningAppointments = linkedAppointments.filter((a) => {
+      const service = allServices?.find?.((s) => s.id === a.service_id);
+      const name = service?.name?.toLowerCase() || "";
+      return name.includes("clean"); // e.g., "Cleaning", "Deep Clean", etc.
+    });
+
+    // Use the most recent cleaning appointment, if any
+    const latestCleaning = cleaningAppointments
+      .slice()
+      .sort((a, b) => getApptTime(b) - getApptTime(a))[0];
+
+    // If we have a recent cleaning appointment, decide from its status
+    if (latestCleaning) {
+      if (latestCleaning.status === "confirmed" || latestCleaning.status === "pending") {
+        return "scheduled";
+      }
+      if (latestCleaning.status === "voided") {
+        return "voided";
+      }
+      // If it's completed, fall through to due/maintain/repair below
     }
 
-    // If any appointment is "pending" → also treat as scheduled
-    if (linkedAppointments.some((a) => a.status === "pending")) {
-      return "scheduled";
-    }
-
-    // If latest appointment is completed → use due/maintain/repair rules
+    // Repairs override due/maintain
     if (device.last_repair_date) return "repair";
 
+    // Due / Maintain rules (independent of voided when latest is not voided)
     if (device.due_3_months || device.due_4_months || device.due_6_months) {
-      const now = new Date();
-      const dueDates = [device.due_3_months, device.due_4_months, device.due_6_months]
+      const now = new Date().getTime();
+      const dueTimes = [device.due_3_months, device.due_4_months, device.due_6_months]
         .filter(Boolean)
-        .map((d) => new Date(d as string));
+        .map((d) => new Date(d as string).getTime())
+        .filter((t) => Number.isFinite(t))
+        .sort((a, b) => a - b);
 
-      const nearestDue = dueDates.sort((a, b) => a.getTime() - b.getTime())[0];
-
-      if (nearestDue && nearestDue.getTime() < now.getTime()) {
-        return "due";
-      } else {
-        return "maintain";
+      const nearestDue = dueTimes[0];
+      if (nearestDue !== undefined) {
+        return nearestDue < now ? "due" : "maintain";
       }
     }
 
+    // If we’ve never cleaned, treat as scheduled to encourage first service
     if (!device.last_cleaning_date) return "scheduled";
 
+    // Default
     return "scheduled";
   };
-
 
 
   return (
@@ -105,7 +140,7 @@ export function ClientDevicesTable({
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+             <thead className="bg-gray-50 border-teal-600 border-b-2 border-t-2">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Device</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
@@ -137,23 +172,56 @@ export function ClientDevicesTable({
                       {getHorsepowerName(device.horsepower_id)}
                     </td>
                     <td className="px-4 py-2">
-                    {(() => {
-                        const status = getDeviceStatus(device);
+                   {(() => {
+                        const status = getDeviceStatus(
+                          device,
+                          allServices,          
+                          appointments,             
+                          deviceIdToAppointmentId   
+                        );
+
                         switch (status) {
-                        case "scheduled":
-                            return <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700">Scheduled</span>;
-                        case "due":
-                            return <span className="px-2 py-1 text-xs rounded bg-red-100 text-red-700">Due</span>;
-                        case "maintain":
-                            return <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-700">Well Maintained</span>;
-                        case "no-service":
-                            return <span className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700">No Service</span>;
-                        case "repair":
-                            return <span className="px-2 py-1 text-xs rounded bg-orange-100 text-orange-700">Repair</span>;
-                        default:
+                          case "scheduled":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-700">
+                                Booked
+                              </span>
+                            );
+                          case "due":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-red-100 text-red-700">
+                                Due
+                              </span>
+                            );
+                          case "maintain":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-700">
+                                Up to Date
+                              </span>
+                            );
+                          case "repair":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-orange-100 text-orange-700">
+                                Repair
+                              </span>
+                            );
+                          case "voided":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-violet-100 text-violet-700">
+                                Voided
+                              </span>
+                            );
+                          case "no-service":
+                            return (
+                              <span className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700">
+                                No Service
+                              </span>
+                            );
+                          default:
                             return <span>-</span>;
                         }
-                    })()}
+                      })()}
+
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -190,7 +258,7 @@ export function ClientDevicesTable({
               className="flex items-center space-x-2"
             >
               <ChevronLeft className="w-4 h-4" />
-              <span>Previous</span>
+              <span>Prev</span>
             </Button>
             <span className="text-sm text-gray-700">
               Page {currentPage} of {totalPages}

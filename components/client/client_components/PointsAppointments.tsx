@@ -15,6 +15,7 @@ import {
   HorsepowerOption,
   AppointmentDevice,
   UUID,
+  Service,
 } from "../../../types/database";
 
 // shadcn/ui
@@ -36,10 +37,12 @@ import {
 } from "@/components/ui/select";
 
 interface PointsAppointmentsProps {
+  clientId: string;
   appointments: Appointment[];
   deviceIdToAppointmentId: Map<UUID, UUID[]>;
   points: number;
   pointsExpiry?: string | null;
+  
   getServiceName: (id: UUID | null) => string;
   locations: ClientLocation[];
   devices: Device[];
@@ -52,9 +55,12 @@ interface PointsAppointmentsProps {
   ) => Promise<Device>;
   onDeviceUpdated?: (device: Device) => void; 
   onReferClick: () => void;
+  allServices: Service[];
+  loyaltyPointsHistory: any[];
 }
 
 export function PointsAppointments({
+  clientId,
   appointments,
   deviceIdToAppointmentId,
   points,
@@ -68,6 +74,8 @@ export function PointsAppointments({
   onApplyDeviceUpdate,
   onDeviceUpdated,
   onReferClick,
+  allServices,
+  loyaltyPointsHistory
 }: PointsAppointmentsProps) {
   const [activeTab, setActiveTab] = useState<
     "points" | "appointments" | "devices"
@@ -170,13 +178,10 @@ export function PointsAppointments({
 
       {/* Tab Content */}
       <div>
-        {activeTab === "points" && (
-          <PointsCard
-            points={points}
-            pointsExpiry={pointsExpiry}
-            onReferClick={onReferClick}
-          />
+       {activeTab === "points" && (
+          <PointsCard clientId={clientId} itemsPerPage={5} />
         )}
+
 
         {activeTab === "appointments" && (
           <RecentAppointmentsTable
@@ -197,6 +202,7 @@ export function PointsAppointments({
             appointments={appointments}
             deviceIdToAppointmentId={deviceIdToAppointmentId}
             onEditDevice={openEditFor}
+            allServices={allServices || []}
           />
         )}
       </div>

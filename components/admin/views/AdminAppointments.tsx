@@ -8,13 +8,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Progress } from '@/components/ui/progress';
-import { Search, Filter, Calendar, User, MapPin, Clock, CheckCircle, Copy, ChevronLeft, ChevronRight, ChevronDown, Settings, AirVent, Edit } from 'lucide-react';
+import { Search, Filter, Calendar, User, MapPin, Clock, CheckCircle, Copy, ChevronLeft, ChevronRight, ChevronDown, Settings, AirVent, Edit, RadarIcon } from 'lucide-react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState } from '@/lib/store';
 import { setAppointments } from '@/lib/features/admin/adminSlice';
 import { AppointmentWithDetails, PaginationInfo } from '@/types/database';
 import moment from 'moment';
 import { useRealtime } from '@/app/RealtimeContext';
+import { Cancel } from '@radix-ui/react-alert-dialog';
 
 export default function AdminAppointments() {
   const dispatch = useDispatch();
@@ -63,6 +64,8 @@ export default function AdminAppointments() {
 
       const res = await fetch(`/api/admin/appointments?${params}`);
       const json = await res.json();
+
+      console.log(json, 'are wee?');
       if (!res.ok) throw new Error(json?.error || 'Failed to load appointments');
       
       setAppointmentsLocal(json.data || []);
@@ -220,7 +223,9 @@ export default function AdminAppointments() {
   );
 
   const discount = { value: editTarget?.stored_discount ?? 0, type: editTarget?.discount_type || 'Standard' };
-  const finalTotal = subtotal * (1 - discount.value / 100);
+const discountedAmount = subtotal * (1 - discount.value / 100);
+const loyaltyPointsDeduction = editTarget?.stored_loyalty_points || 0;
+const finalTotal = discountedAmount - loyaltyPointsDeduction;
 
 
 
@@ -654,7 +659,10 @@ export default function AdminAppointments() {
                       <div className="pt-2 border-t">
                         <div className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
                           <AirVent size={14} />
-                          <span>{appointment.appointment_devices.length} device(s) scheduled</span>
+                          <span>
+                            {appointment.appointment_devices.length} device(s){' '}
+                            {appointment.status === 'voided' ? 'voided' : 'scheduled'}
+                          </span>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button className="text-gray-400 hover:text-gray-600">
@@ -695,22 +703,64 @@ export default function AdminAppointments() {
                       </div>
                     )}
 
-                    {/* Mark as Completed Button */}
-                    {appointment.status === 'confirmed' && (
-                      <div className="pt-2">
-                        <Button
-                          size="sm"
-                          className="w-full bg-green-600 hover:bg-green-700 text-white"
-                          onClick={() => {
-                            setConfirmTarget(appointment);
-                            setConfirmOpen(true);
-                          }}
-                        >
-                          <CheckCircle size={16} className="mr-2" />
-                          Mark as Completed
-                        </Button>
-                      </div>
-                    )}
+                    {/* Mark as Completed or Voided Button */}
+                    {/* Actions when status = confirmed */}
+                    {/* Actions when status = confirmed */}
+                      {appointment.status === 'confirmed' && (
+                        <div className="pt-2 flex flex-col sm:flex-row gap-2">
+                          {/* Mark as Completed */}
+                          <Button
+                            size="sm"
+                            className="sm:flex-1 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm"
+                            onClick={() => {
+                              setConfirmTarget(appointment);
+                              setConfirmOpen(true);
+                            }}
+                          >
+                            <CheckCircle size={14} className="mr-1 sm:mr-2" />
+                            <span className="truncate">Mark as Completed</span>
+                          </Button>
+
+                          {/* Void Button */}
+                          <Button
+                            size="sm"
+                            className="sm:flex-1 bg-violet-600 hover:bg-violet-700 text-white text-xs sm:text-sm"
+                            onClick={async () => {
+                              try {
+                                await fetch("/api/admin/appointments", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ id: appointment.id, status: "voided" }),
+                                });
+
+                                try {
+                                  await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/send-push`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      mode: "admin_to_client",
+                                      client_id: appointment.client_id,
+                                      client_name: appointment?.clients?.name || "Client",
+                                      title: "❌ Appointment Voided",
+                                    }),
+                                  });
+                                  console.log("📩 Push notification sent to client:", appointment.client_id);
+                                } catch (err) {
+                                  console.error("❌ Failed to send push notification to client:", err);
+                                }
+
+                                await loadAppointments(pagination.page); // refresh list
+                              } catch (err) {
+                                console.error("⚠ Failed to void appointment:", err);
+                              }
+                            }}
+                          >
+                            <RadarIcon size={14} className="mr-1 sm:mr-2" />
+                            <span className="truncate">Void</span>
+                          </Button>
+                        </div>
+                      )}
+
 
                     {/* Edit Devices Button for Completed */}
                    {appointment.status === 'completed' && (
@@ -923,6 +973,14 @@ export default function AdminAppointments() {
           {discount.value}%
         </div>
 
+        {/* Show loyalty points deduction if present */}
+        {editTarget?.stored_loyalty_points > 0 && (
+          <div className="mt-1 text-sm text-purple-600">
+            <span className="font-semibold">Presko Rewards: </span>
+            {editTarget?.stored_loyalty_points} OFF (₱{editTarget?.stored_loyalty_points})
+          </div>
+        )}
+
         <div className="pt-4 font-bold text-lg text-green-600">
           Total: ₱{Number(finalTotal).toLocaleString()}
         </div>
@@ -978,18 +1036,19 @@ export default function AdminAppointments() {
                 }
 
                 // Compute new total
-                const subtotal = editedDevices.reduce(
-                  (sum, d) =>
-                    sum +
-                    computeUnitPrice(d, settingsMap, editTarget?.services?.name),
-                  0
-                );
-                const discount = {
-                  value: editTarget?.stored_discount ?? 0,
-                  type: editTarget?.discount_type || 'Standard' 
-                };
-                const finalAmount =
-                  subtotal - (subtotal * discount.value) / 100;
+               const subtotal = editedDevices.reduce(
+                (sum, d) =>
+                  sum +
+                  computeUnitPrice(d, settingsMap, editTarget?.services?.name),
+                0
+              );
+              const discount = {
+                value: editTarget?.stored_discount ?? 0,
+                type: editTarget?.discount_type || 'Standard' 
+              };
+              const discountedAmount = subtotal * (1 - discount.value / 100);
+              const loyaltyPointsDeduction = editTarget?.stored_loyalty_points || 0;
+              const finalAmount = discountedAmount - loyaltyPointsDeduction;
 
                 // Update appointment amount
                 await fetch(`/api/admin/appointments`, {
@@ -1026,114 +1085,59 @@ export default function AdminAppointments() {
       </Dialog>
 
 
-      
-
-
       {/* Confirm Complete Dialog */}
+
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Confirm Completion</DialogTitle>
           </DialogHeader>
           <div className="text-sm">
-            {`Set ${confirmTarget?.clients?.name || 'Client'} appointment to completed?`}
+            {`Set ${confirmTarget?.clients?.name || "Client"} appointment to completed?`}
           </div>
           <div className="flex justify-end gap-2 pt-4">
-          <Button
+            <Button
               className="bg-green-600 hover:bg-green-700 text-white"
               disabled={confirmLoading}
               onClick={async () => {
-                if (!confirmTarget) return
+                if (!confirmTarget) return;
                 try {
-                  setConfirmLoading(true)
+                  setConfirmLoading(true);
 
                   // 1. Update appointment status
-                  await fetch('/api/admin/appointments', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: confirmTarget.id, status: 'completed' }),
-                  })
+                  await fetch("/api/admin/appointments", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ id: confirmTarget.id, status: "completed" }),
+                  });
 
-                  // 2. Handle points increment based on referral status
-                  let isReferral = false
-                  let clientData: any
-                  
+                  // 2. Handle points increment based on transaction amount and referral status
+                  let isReferral = false;
+                  let clientData: any;
+
                   try {
                     // Fetch the client data to check for ref_id
-                    const clientRes = await fetch(`/api/clients/${confirmTarget.clients?.id}`)
+                    const clientRes = await fetch(`/api/clients/${confirmTarget.clients?.id}`);
                     if (!clientRes.ok) {
-                      throw new Error('Failed to fetch client data')
+                      throw new Error("Failed to fetch client data");
                     }
-                    
-                    clientData = await clientRes.json()
-                    const clientId = clientData.id
-                    const pointsToAdd = 1
-                    
-                    // Check if client has a referrer (ref_id is not null/empty)
+
+                    clientData = await clientRes.json();
+
+
                     if (clientData.ref_id) {
-                      isReferral = true
-                      const refId = clientData.ref_id
-                      
-                      console.log(`Processing referral: Client ${clientId} was referred by ${refId}`)
-                      
-                      // Add points to the completed client
-                      await fetch(`/api/clients/${clientId}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          points: (clientData.points || 0) + pointsToAdd,
-                        }),
-                      })
-                      
-                      console.log(`Added ${pointsToAdd} point to client ${clientId}`)
-                      
-                      // Fetch referrer data and add points
-                      const refRes = await fetch(`/api/clients/${refId}`)
-                      if (refRes.ok) {
-                        const refData = await refRes.json()
-                        await fetch(`/api/clients/${refId}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            points: (refData.points || 0) + pointsToAdd,
-                          }),
-                        })
-                        
-                        console.log(`Added ${pointsToAdd} point to referrer ${refId}`)
-                      }
-                      
-                      // Remove ref_id after processing (client is no longer a "new" referral)
-                      await fetch(`/api/clients/${clientId}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ref_id: null }),
-                      })
-                      
-                      console.log(`Removed ref_id from client ${clientId}`)
-                      
+                      isReferral = true;
                     } else {
-                      // No referral - just add points to the completed client
-                      isReferral = false
-                      
-                      await fetch(`/api/clients/${clientId}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          points: (clientData.points || 0) + pointsToAdd,
-                        }),
-                      })
-                      
-                      console.log(`Added ${pointsToAdd} point to client ${clientId} (no referral)`)
+                      isReferral = false;
                     }
-                    
                   } catch (err) {
-                    console.error('Error handling client points:', err)
+                    console.error("Error handling client points:", err);
                   }
 
                   // 3. Insert into notifications table
                   await fetch(`/api/clients/notification-by-id`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                       client_id: confirmTarget.clients?.id,
                       send_to_admin: false,
@@ -1143,27 +1147,28 @@ export default function AdminAppointments() {
                     }),
                   });
 
-                  // 4. Close dialogs
-                  setConfirmOpen(false)
-                  setConfirmTarget(null)
+                  // 5. Close dialogs
+                  setConfirmOpen(false);
+                  setConfirmTarget(null);
                   if (selectedAppt && selectedAppt.id === confirmTarget.id) {
-                    setDetailsOpen(false)
+                    setDetailsOpen(false);
                   }
 
-                  // 5. Reload appointments
-                  await loadAppointments(pagination.page)
+                  // 6. Reload appointments
+                  await loadAppointments(pagination.page);
                 } catch (e) {
-                  console.error('Error completing appointment and adding notification', e)
+                  console.error("Error completing appointment and adding notification", e);
                 } finally {
-                  setConfirmLoading(false)
+                  setConfirmLoading(false);
                 }
               }}
             >
-            {confirmLoading ? 'Please wait...' : 'OK'}
-          </Button>
+              {confirmLoading ? "Please wait..." : "OK"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
+
 
 
     </div>

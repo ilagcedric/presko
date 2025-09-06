@@ -9,6 +9,7 @@ import type { AppointmentWithDetails, CustomSetting } from "@/types/database";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
+
 interface Props {
   clientId: string;
 }
@@ -171,18 +172,33 @@ export function ClientInvoice({ clientId }: Props) {
         // const subtotal = appt.total_units * unitPrice;
         const total = appt.amount;
         // Compute subtotal = sum of device unit prices
-        const subtotal = (appt.appointment_devices || []).reduce((sum, ad) => {
-          const unitPrice = computeUnitPrice(ad.devices);
-          return sum + unitPrice;
-        }, 0);
+       const subtotal = (appt.appointment_devices || []).reduce((sum, ad) => {
+        const unitPrice = computeUnitPrice(ad.devices);
+        return sum + unitPrice;
+      }, 0);
 
-        // Apply discount on subtotal
-        const discount = appt.stored_discount;
-        const discountType = appt.discount_type;
-        const discountAmount = (subtotal * discount) / 100;
+      // Apply discount on subtotal
+      const discount = appt.stored_discount || 0;
+      const discountType = appt.discount_type || 'Standard';
+      const discountAmount = (subtotal * discount) / 100;
+      const discountedAmount = subtotal - discountAmount;
 
-        // Final total comes from appointment table (trusted amount)
-        const finalTotal = appt.amount;
+      // Apply loyalty points deduction if present
+      const loyaltyPointsDeduction = appt.stored_loyalty_points || 0;
+      const calculatedTotal = discountedAmount - loyaltyPointsDeduction;
+
+      // Final total comes from appointment table (trusted amount)
+      const finalTotal = appt.amount;
+
+      const today = new Date();
+      const dateStr = today
+        .toISOString()
+        .split("T")[0]
+        .replace(/-/g, "");
+
+      const counter = String((page - 1) * 1 + (idx + 1)).padStart(4, "0");
+
+      const invoiceNumber = `${dateStr}-${counter}`;
 
 
         return (
@@ -199,7 +215,7 @@ export function ClientInvoice({ clientId }: Props) {
                 <p>preskoac@gmail.com</p>
               </div>
               <div className="text-right space-y-1">
-                <p><strong>Invoice:</strong> {String(idx + 1).padStart(4, "0")}</p>
+                <p><strong>Invoice:</strong> {invoiceNumber}</p>
                 <p><strong>Issue date:</strong> {appt.appointment_date}</p>
                 <p><strong>Due date:</strong> {appt.appointment_date}</p>
 
@@ -261,33 +277,40 @@ export function ClientInvoice({ clientId }: Props) {
 
             {/* Invoice Summary */}
           <div className="flex justify-end px-6 pb-6">
-            <div className="w-full sm:w-1/2 lg:w-1/3 text-sm space-y-1 border p-3 rounded-md bg-gray-50">
-              <div className="flex justify-between">
-                <span>Subtotal</span>
-                <span>₱{subtotal.toFixed(2)}</span>
+          <div className="w-full sm:w-1/2 lg:w-1/3 text-sm space-y-1 border p-3 rounded-md bg-gray-50">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>₱{subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Discount ({discount}% {discountType})</span>
+              <span>-₱{discountAmount.toFixed(2)}</span>
+            </div>
+            {/* Show loyalty points deduction if present */}
+            {appt.stored_loyalty_points > 0 && (
+              <div className="flex justify-between text-purple-600">
+                <span>Presko Rewards: (₱{appt.stored_loyalty_points} OFF)</span>
+                <span>-₱{appt.stored_loyalty_points.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Discount ({discount}% {discountType})</span>
-                <span>-₱{discountAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tax</span>
-                <span>₱0.00</span>
-              </div>
-              <div className="flex justify-between font-semibold">
-                <span>Total</span>
-                <span>₱{finalTotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Payments</span>
-                <span>₱{finalTotal.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Balance</span>
-                <span>₱0.00</span>
-              </div>
+            )}
+            <div className="flex justify-between">
+              <span>Tax</span>
+              <span>₱0.00</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Total</span>
+              <span>₱{finalTotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Payments</span>
+              <span>₱{finalTotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Balance</span>
+              <span>₱0.00</span>
             </div>
           </div>
+        </div>
 
 
 

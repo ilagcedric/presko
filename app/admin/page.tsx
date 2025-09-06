@@ -6,13 +6,15 @@ import type { RootState } from '@/lib/store'
 import { setAuthenticated, setCurrentAdmin } from '@/lib/features/admin/adminSlice'
 import AdminLogin from '@/components/admin/AdminLogin'
 import AdminLayout from '@/components/admin/layout/AdminLayout'
-import { RealtimeProvider } from "@/app/RealtimeContext";
-
+import { RealtimeProvider } from "@/app/RealtimeContext"
+import Notifications from "@/components/Notifications"   // 👈 import it
 
 export default function AdminPage() {
   const dispatch = useDispatch()
   const isAuthenticated = useSelector((s: RootState) => s.admin.isAuthenticated)
+  const currentAdmin = useSelector((s: RootState) => s.admin.currentAdmin) // 👈 get admin details
   const [hydrating, setHydrating] = useState(true)
+
 
   useEffect(() => {
     const stored = typeof window !== 'undefined' ? sessionStorage.getItem('presko_admin') : null
@@ -40,7 +42,6 @@ export default function AdminPage() {
     setHydrating(false)
   }, [dispatch])
 
-
   if (hydrating) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#99BCC0] via-[#8FB6BA] to-[#6fa3a9]">
@@ -55,7 +56,9 @@ export default function AdminPage() {
 
   return (
     <RealtimeProvider>
+      {/* 👇 Register admin push subscription globally */}
+      {currentAdmin?.id && <Notifications admin_id={currentAdmin.id} />}
       <AdminLayout />
     </RealtimeProvider>
-  );
+  )
 }
