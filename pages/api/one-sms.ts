@@ -58,7 +58,7 @@ export default async function handler(
           continue;
         }
 
-        const newUrl = `https://presko-web.github.io/client-portal/new_experience.html?customerid=${client.id}`;
+        const newUrl = `presko-web.github.io/client-portal/new_experience.html?customerid=${client.id}`;
         // Generate original profile link
         const originalProfileLink = `${baseUrl}/${client.qr_code}`;
         
