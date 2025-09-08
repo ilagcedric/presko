@@ -294,6 +294,7 @@ export function ConfirmStep() {
     // 🔹 Check if SMS is enabled
       const smsActiveSetting = await customSettingsApi.getSetting('sms_active');
       const isSmsActive = smsActiveSetting?.setting_value?.toLowerCase() == 'true';
+      const newUrl = `presko-web.github.io/client-portal/new_experience.html?customerid=${currentClientId}`;
 
 
       if (isSmsActive) {
@@ -309,7 +310,7 @@ export function ConfirmStep() {
           Amount: {3}
 
           To check your booking, please scan your Presko QR Code or visit:
-          https://presko-ac.vercel.app/client/{4}
+          ${newUrl}
 
           Thank you for choosing Presko!`;
 

@@ -109,5 +109,22 @@ export const clientApi = {
     }
 
     return data as unknown as DeviceWithLocation[];
+  },
+
+  getAllClientsForSMS: async (): Promise<Pick<Client, 'id' | 'name' | 'mobile' | 'qr_code'>[]> => {
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, name, mobile, qr_code')
+      .not('mobile', 'is', null)
+      .not('qr_code', 'is', null)
+      .not('mobile', 'eq', '')
+      .not('qr_code', 'eq', '');
+
+    if (error) {
+      console.error('Error fetching clients for SMS:', error);
+      throw new Error(error.message);
+    }
+
+    return data || [];
   }
 };
