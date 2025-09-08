@@ -97,16 +97,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let totalUnits = 0;
       let locationDetails = "";
 
-      // Build detailed location and device info
+      // Build detailed location and device info with proper formatting
       for (const [locationName, locationData] of Object.entries(info.locations)) {
         totalUnits += locationData.count;
         
+        // Add location name with proper spacing
         locationDetails += `\n${locationName}\n`;
         locationDetails += `${locationData.count} unit(s):\n`;
-        locationDetails += locationData.devices.join("\n") + "\n";
+        
+        // Add each device on a new line with proper indentation
+        for (const device of locationData.devices) {
+          locationDetails += `• ${device}\n`;
+        }
+        
+        // Add extra line break between locations for better separation
+        locationDetails += "\n";
       }
 
-      // Start with the template and replace placeholders step by step
+       const newUrl = `presko-web.github.io/client-portal/new_experience.html?customerid=${clientId}`;
+
+      // Start with the template and replace placeholders
       let message = template;
       
       // Replace simple placeholders first
@@ -114,10 +124,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       message = message.replace(/\{total_units\}/g, String(totalUnits));
       message = message.replace(/\{client_id\}/g, clientId);
       
-      // Replace the complex location placeholder
-      // Look for the pattern and replace it with our formatted details
-      const locationPattern = /\{location\}\n\{no_of_units\} \{brand\} \{types\} \{horsepower\} - \{due_date\}/g;
-      message = message.replace(locationPattern, locationDetails.trim());
+      // For location details, let's look for common placeholder patterns and replace them
+      // This handles various possible template formats
+      if (message.includes('{location}') || message.includes('{locations}')) {
+        message = message.replace(/\{locations?\}/g, locationDetails.trim());
+      }
+      
+      // Handle other possible location-related patterns
+      const locationPatterns = [
+        /\{location\}\s*\n\s*\{no_of_units\}[^\n]*\{brand\}[^\n]*\{types\}[^\n]*\{horsepower\}[^\n]*\{due_date\}/g,
+        /\{location_details\}/g,
+        /\{device_details\}/g
+      ];
+      
+      for (const pattern of locationPatterns) {
+        message = message.replace(pattern, locationDetails.trim());
+      }
+      
+      // If no specific location placeholder found, append the details
+      if (!message.includes(locationDetails.trim()) && locationDetails.trim()) {
+        message += "\n\n" + locationDetails.trim();
+      }
+
+      // Add website link to the end of the message with proper spacing
+      message += `\n\nYou may check your profile on \n ${newUrl}`;
 
       // --- Send via Semaphore API ---
       const apikey = process.env.SEMAPHORE_API_KEY!;
