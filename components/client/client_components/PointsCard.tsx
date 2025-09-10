@@ -226,7 +226,7 @@ export function PointsCard({
         {/* Table */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50 border-b">
+            <thead className="bg-gray-50 border-teal-600 border-b-2 border-t-2">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                   Service
