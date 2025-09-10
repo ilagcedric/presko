@@ -256,24 +256,30 @@ const finalTotal = discountedAmount - loyaltyPointsDeduction;
     const serviceName = (appointment.services?.name || '').toLowerCase();
     const city = (appointment.client_locations?.cities?.name || '').toLowerCase();
     const barangay = (appointment.client_locations?.barangays?.name || '').toLowerCase();
+    const landmark = (appointment.client_locations?.landmark || '').toLowerCase();
+    
     
     return clientName.includes(query) ||
            serviceName.includes(query) ||
            city.includes(query) ||
-           barangay.includes(query);
+           barangay.includes(query) ||
+           landmark.includes(query);
   });
 
   // Copy functionality
   const copyAppointmentsToClipboard = async () => {
     try {
-      const copyText = filteredAppointments.map(appointment => {
+      const copyText = filteredAppointments.map(
+        appointment => {
         const clientName = appointment.clients?.name || 'Unknown Client';
         const time = appointment.appointment_time || 'No time set';
         const mobile = appointment.clients?.mobile || 'No mobile';
         const address = buildAddressString(appointment);
+        const landmark = appointment.client_locations?.landmark || '';
         const locationName = appointment.client_locations?.name || '';
         const serviceName = appointment.services?.name || 'No service';
         const amount = appointment.amount ? `₱${appointment.amount.toLocaleString()}` : 'No amount';
+        const dateAppt = moment(appointment.appointment_date).format('MMM DD, YYYY');
         
         // Build device list
         let deviceList = 'No devices';
@@ -293,9 +299,11 @@ const finalTotal = discountedAmount - loyaltyPointsDeduction;
         }
 
         return `${clientName} - ${time}
+        ${dateAppt}
         ${mobile}
         ${address}
         ${locationName}
+        ${landmark}
         =============
         ${deviceList}
         Service: ${serviceName}

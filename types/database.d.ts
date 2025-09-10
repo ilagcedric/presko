@@ -384,6 +384,7 @@ export interface AppointmentWithDetails extends Appointment {
     city_id: UUID | null;
     cities?: { name: string; province: string } | null;
     barangays?: { name: string } | null;
+    landmark?: string | null;
   };
   appointment_devices?: Array<{
     id: string;

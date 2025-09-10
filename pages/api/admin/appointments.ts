@@ -18,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           clients:client_id(id, name, mobile),
           services:service_id(id, name, description, base_price),
           client_locations:location_id(
-            id, name, address_line1, street, barangay_id, city_id,
+            id, name, address_line1, street, barangay_id, city_id, landmark,
             cities:city_id(name, province),
             barangays:barangay_id(name)
           ),
