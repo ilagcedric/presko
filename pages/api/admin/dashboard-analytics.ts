@@ -10,7 +10,8 @@ import {
   DeviceDueSoon,
   ForecastData,
   ChurnRiskClient,
-  ReturnClient
+  ReturnClient,
+  DeviceOverdue
 } from '../../../types/database'
 
 interface DashboardAnalytics {
@@ -21,6 +22,7 @@ interface DashboardAnalytics {
   returnClients: ReturnClient[];
   clientsByArea: ClientsByArea[];
   devicesDueSoon: DeviceDueSoon[];
+  devicesOverdue: DeviceOverdue[]; 
   forecastData: ForecastData[];
   churnRiskClients: ChurnRiskClient[];
 }
@@ -361,7 +363,7 @@ export default async function handler(
           client_locations (name),
           brands (name),
           ac_types (name)
-        `);
+        `)
 
       const devicesDueSoon: DeviceDueSoon[] = [];
       const next30DaysISO = next30Days.toISOString().split("T")[0];
@@ -376,6 +378,31 @@ export default async function handler(
         dueDates.forEach((due) => {
           if (due.date && due.date <= next30DaysISO && due.date >= todayISO) {
             devicesDueSoon.push({
+              id: device.id,
+              name: device.name,
+              client_name: device.clients?.name || 'Unknown',
+              location_name: device.client_locations?.name || 'Unknown',
+              brand_name: device.brands?.name,
+              ac_type_name: device.ac_types?.name,
+              due_date: due.date,
+              due_type: due.type
+            });
+          }
+        });
+      });
+
+      const devicesOverdue: DeviceOverdue[] = [];
+
+      (devicesDueData as RawDeviceDue[] | null)?.forEach((device) => {
+        const dueDates = [
+          { date: device.due_3_months, type: "due_3_months" as const },
+          { date: device.due_4_months, type: "due_4_months" as const },
+          { date: device.due_6_months, type: "due_6_months" as const },
+        ];
+
+        dueDates.forEach((due) => {
+          if (due.date && due.date < todayISO) { // Past due date
+            devicesOverdue.push({
               id: device.id,
               name: device.name,
               client_name: device.clients?.name || 'Unknown',
@@ -560,10 +587,6 @@ export default async function handler(
       ];
 
 
-
-      
-
-      // Compile dashboard stats
       const stats: DashboardStats = {
         totalSales: {
           today: todaySales?.reduce((sum, apt) => sum + apt.amount, 0) || 0,
@@ -573,7 +596,8 @@ export default async function handler(
         bookingStatusBreakdown,
         devicesData: {
           dueWithin30Days: devicesDueSoon.length,
-          churnRisk: churnRiskClients.length
+          churnRisk: churnRiskClients.length,
+          overdueCount: devicesOverdue.length // Add this line
         },
         clientStats: {
           newThisMonth: newClientsCount || 0,
@@ -588,9 +612,10 @@ export default async function handler(
         topClients,
         returnClients,
         clientsByArea,
-        devicesDueSoon: devicesDueSoon.slice(0, 20), // Limit to top 20
+        devicesDueSoon: devicesDueSoon,
+        devicesOverdue: devicesOverdue,
         forecastData,
-        churnRiskClients: churnRiskClients.slice(0, 15) // Limit to top 15
+        churnRiskClients: churnRiskClients
       };
 
       return res.status(200).json(analytics);

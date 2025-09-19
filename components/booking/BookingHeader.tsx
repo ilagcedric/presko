@@ -24,14 +24,14 @@ export function BookingHeader() {
 
   return (
     <div className="bg-white shadow-sm border-b">
-      <div className="max-w-5xl mx-auto px-4 py-4 sm:py-6"> {/* Adjusted vertical padding for mobile */}
-        <div className="flex flex-wrap justify-center sm:justify-between items-center gap-y-4 sm:gap-y-0"> {/* Added flex-wrap and adjusted justify/gap-y */}
+      <div className="max-w-5xl mx-auto px-4 py-4 md:py-6">
+        <div className="flex flex-wrap justify-center md:justify-between items-center gap-y-4 md:gap-y-0">
           {steps.map((step, index) => {
             const IconComponent = step.icon; // Get the icon component for the current step
             return (
               <div key={step.id} className="flex items-center">
                 <div className="flex flex-col items-center">
-                  <div className={`flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 ${ /* Adjusted size for mobile */
+                  <div className={`flex items-center justify-center w-8 h-8 md:w-10 md:h-10 rounded-full border-2 ${
                     currentStep > step.id 
                       ? 'bg-green-500 border-green-500 text-white shadow-md' 
                       : currentStep === step.id
@@ -39,23 +39,23 @@ export function BookingHeader() {
                       : 'bg-gray-100 border-gray-300 text-gray-400 shadow-md'
                   }`}>
                     {currentStep > step.id ? (
-                      <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" /> 
+                      <CheckCircle className="w-4 h-4 md:w-5 md:h-5" /> 
                     ) : (
-                      <IconComponent className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <IconComponent className="w-4 h-4 md:w-5 md:h-5" />
                     )}
                   </div>
                   <div className="mt-2 text-center">
-                    <p className={`text-xs sm:text-sm font-medium ${ /* Adjusted font size for mobile */
+                    <p className={`text-xs md:text-sm font-medium ${
                       currentStep >= step.id ? 'text-gray-900' : 'text-gray-400'
                     }`}>
                       {step.title}
                     </p>
-                    {/* Hide description on very small screens, show on sm and up */}
-                    <p className="hidden sm:block text-xs text-gray-500">{step.description}</p> 
+                    {/* Show description on iPad and larger screens */}
+                    <p className="hidden md:block text-xs text-gray-500">{step.description}</p> 
                   </div>
                 </div>
                 {index < steps.length - 1 && (
-                  <div className={`w-6 sm:w-16 h-0.5 mx-2 sm:mx-4 ${ /* Adjusted line width and margin for mobile */
+                  <div className={`w-6 md:w-16 h-0.5 mx-2 md:mx-4 ${
                     currentStep > step.id ? 'bg-green-500' : 'bg-gray-200'
                   }`} />
                 )}

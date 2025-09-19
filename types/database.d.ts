@@ -222,6 +222,17 @@ export interface AdminUser {
   updated_at: Timestamp;
 }
 
+export interface DeviceOverdue {
+  id: string;
+  name: string;
+  client_name: string;
+  location_name: string;
+  brand_name?: string;
+  ac_type_name?: string;
+  due_date: string;
+  due_type: 'due_3_months' | 'due_4_months' | 'due_6_months';
+}
+
 // Dashboard Analytics Types
 export interface DashboardStats {
   totalSales: {
@@ -238,6 +249,7 @@ export interface DashboardStats {
   devicesData: {
     dueWithin30Days: number;
     churnRisk: number;
+    overdueCount: number; // Add this line
   };
   clientStats: {
     newThisMonth: number;

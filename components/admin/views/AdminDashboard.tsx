@@ -16,6 +16,7 @@ import DevicesDueCard from '../dashboard/DevicesDueCard'
 import ForecastChart from '../dashboard/ForecastChart'
 import ClientsByAreaChart from '../dashboard/ClientsByAreaChart'
 import ReturnClientsTable from "../dashboard/ReturnClientsTable";
+import DevicesOverdueCard from '../dashboard/DevicesOverdueCard'
 
 // Import types
 import {
@@ -27,7 +28,8 @@ import {
   DeviceDueSoon,
   ForecastData,
   ChurnRiskClient,
-  ReturnClient
+  ReturnClient,
+  DeviceOverdue
 } from '@/types/database'
 
 interface DashboardAnalytics {
@@ -38,6 +40,7 @@ interface DashboardAnalytics {
   clientsByArea: ClientsByArea[];
   returnClients: ReturnClient[];
   devicesDueSoon: DeviceDueSoon[];
+  devicesOverdue: DeviceOverdue[];
   forecastData: ForecastData[];
   churnRiskClients: ChurnRiskClient[];
 }
@@ -200,7 +203,14 @@ export default function AdminDashboard() {
             devices={analytics.devicesDueSoon} 
             stats={analytics.stats.devicesData} 
           />
+
+           <DevicesOverdueCard 
+            devices={analytics.devicesOverdue} 
+            stats={{ overdueCount: analytics.stats.devicesData.overdueCount }} 
+          />
         </section>
+
+
 
         {/* Forecast & Projections Section */}
         <section className="space-y-6">
